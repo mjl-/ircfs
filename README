@@ -141,6 +141,10 @@ get a copy with:
 
 	hg clone static-http://www.ueber.net/who/mjl/hg/ircfs/
 
+to use it, first make a file "mkconfig" similar to your inferno's
+installation mkconfig (symlink/bind it).  now type "mk install" to
+compile and install.
+
 
 todo:
 - ircfs: say "day changed" in all tagets at midnight
