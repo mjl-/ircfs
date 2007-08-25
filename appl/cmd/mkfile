@@ -1,0 +1,19 @@
+<../../mkconfig
+
+TARG=\
+	testirc.dis\
+	ircfs.dis\
+
+SYSMODULES=\
+	arg.m\
+	bufio.m\
+	daytime.m\
+	draw.m\
+	keyring.m\
+	string.m\
+	sys.m\
+	irc.m\
+
+DISBIN=$ROOT/dis
+
+<$ROOT/mkfiles/mkdis

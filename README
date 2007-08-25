@@ -1,0 +1,161 @@
+this package contains an irc file system (ircfs), an irc library
+and a tk front-end for the filesystem (wm/irc).  all written in
+limbo for use under inferno.
+
+ircfs maintains a connection to an irc server and presents each
+communication line (either a channel it has joined, or a private
+query to a user) as a directory.  the name of the directory is a
+sequence number.  the files in the directory allow the user to read
+lines being said on the channel, write new lines, execute special
+commands (such as setting the topic, kicking people).  there is
+always a directory "0" which keeps status information, e.g. messages
+about the connection.
+
+ircfs serves the following directory hiearchy:
+/ctl
+/event
+/nick
+/raw
+/n	# n is variable, a number
+	ctl
+	data
+	name
+	users
+
+commands can be written to /ctl and /n/ctl:
+connect, reconnect, join, quit, back, away, nick, umode, whois,
+names (or the shorter n), me (for ctcp action), notice, invite,
+version, time, ping (all three ctcp requests), kick, op, ban, voice,
+deop, unban, devoice, mode, part, topic.
+
+most ctl usage can be guessed;  connect takes two arguments: a
+network address and a nickname.
+
+from /event events can be read such as new or closed channels/queries
+("new n name", "del n"), connection state changes such as "connecting",
+"connected nick" or "disconnected", and nick changes such as "nick
+nick".
+
+reading /nick returns the nick name.
+
+reading from /raw returns all irc messages read from or written to
+the irc server, with <<< or >>> prepended.
+
+writing to /raw makes ircfs write these messages to the irc server.
+
+reading from /n/name returns the name of the channel or user.
+
+reading from /n/users is only userful if it is a channel: it returns
+lines in the form of "+user" and "-user" when a user joins or parts.
+
+writing to /n/data makes ircfs say those lines on the channel/user.
+multiple lines can be written in one write.
+
+reading from /n/data returns lines of the form "+ xx:xx uuuuuser:
+text\n" and " for text being said at time xx:xx by uuuuuser, and
+of the form "# xx:xx text" for meta-lines such as mode/topic changes
+or users joining/leaving.  by default, a history of some 6KB is
+returned, the bytes of history to read can be set with a wstat on
+an open fid to the file.
+
+
+wm/irc is a program that reads one or more "irc directories", i.e.
+directories served by one or more ircfs-en.  each such ircfs is
+called a "server", each channel or query is called a "window".  the
+listbox on the left shows all windows grouped by server, window "0"
+(the status window) is moved one character to the left.  selecting
+a name will show the contents for that window.
+
+text can be said by typing it in the bottom entry.  lines starting
+with an / are considered to be commands and written to the windows
+ctl file on ircfs (with the slash removed).  a few commands are
+directly interpreted by wm/irc:
+
+close
+	close the current window and remove from listed windows
+addsrv
+        add new server, single argument must be a path to root ircfs
+        directory
+delsrv
+        remove the current server including all its channel/query
+        windows
+exit
+	shutdown wm/irc
+windows
+        show information about windows served by the ircfs and their
+        status in wm/irc (open == in listbox, dead == in listbox
+        but closed at ircfs side (e.g. due to eof after parting),
+        unopen == not in listbox (and not closed on ircfs side)).
+        information consists of channel/user name and directory
+        name
+addwin
+	add window to listbox, single argument must be directory name
+
+wm/irc has quite some features to make use comfortable:
+- nick completion using tab
+- nick highlighting, searching text
+- keyboard shortcuts for navigating windows: ctrl-[pnzxk] for cycling
+  windows: back, forward, previous active, next active, previous shown
+- more shortcuts: ctrl-t for focusing on text, ctrl-f for focusing
+  on search box
+
+
+to run ircfs on a remote machine and export its files, you can do the following:
+	on the remote machines:
+	once: mkdir /mnt/irc /mnt/irc/freenode $home/irclog $home/irclog/freenode
+	emu -c0
+	ndb/cs
+	mount {ircfs -dD -l $home/irclog/freenode -a net!irc.freenode.net!6667 -n ircfsuser freenode} /mnt/irc/freenode
+	styxlisten -A net!*!6872 {export /mnt/irc}
+
+	and to mount it and start talking:
+	once: mkdir /mnt/irc
+	ndb/cs
+	mount net!remotemachine!6872 /mnt/irc
+	wm/irc -d /mnt/irc/freenode &
+
+	you should set up authentication, this should be outside the scope of this document...
+	to set this up, first run a signer:
+	ndb/cs
+	createsignerkey
+	svc/auth
+	auth/changelogin yourusername	# enter password
+
+	make the keyring/ircfs file:
+	getauthinfo $home/keyring/ircfs	# enter signer address and password
+
+        now either copy the ircfs to the styx client and server,
+        or do the getauthinfo again.  finally, replace the -A in
+        the mount and styxlisten calls earlier by "-k $home/keyring/ircfs".
+
+
+misc stuff:
+this code is in the public domain.  the code is written by mechiel
+lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
+
+the hg repository for this code is currently at
+
+	http://www.ueber.net/who/mjl/hg/ircfs/
+
+get a copy with:
+
+	hg clone static-http://www.ueber.net/who/mjl/hg/ircfs/
+
+
+todo:
+- ircfs: say "day changed" in all tagets at midnight
+- wm/irc: next/prev active should skip to state==Meta windows when there are no more highlighted or data windows.
+- wm/irc: fix scrolling when window is only just full
+- ircfs: for each target, keep track of which line has been read last.  when reading lines that have not been read before, return one line at a time.  makes sure the wm/irc will perform setstatus() for the lines.
+- wm/ircfs: after e.g. ctrl-k, make the focus go back to prompt.  also for ctrl-[npzx], perhaps more
+- ircfs: show user status (op,voice,none) in NAMES output
+
+- read irc rfc's, try on many networks/channels
+- find ways to crash ircfs and wm/irc, and fix it
+- ircfs: unify reading/writing irc messages in /appl/lib/irc.b?  messages are almost bidirectional?
+- ircfs: perhaps add the more obscure commands: info, ison, links, list, lusers, motd, note, ping, servlist, squery?, stats, time, trace, version, userhost, whowas
+- both: remove some debug messages
+- all: clean up, cluster code that deals with same things, group the tk commands in wm/irc
+- wm/irc: open servers in background?  could introduce races
+- libirc: remove text() functions?  or replace them by pack() minus the newlines?
+- all: manual pages

@@ -1,0 +1,8 @@
+<../mkconfig
+
+DIRS=\
+	cmd\
+	wm\
+	lib\
+
+<$ROOT/mkfiles/mksubdirs
