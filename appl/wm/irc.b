@@ -86,9 +86,9 @@ tkcmds := array[] of {
 	"frame .m.text",
 	"frame .side",
 
-	"button .snarf -text snarf -command {send cmd snarf}",
-	"button .paste -text paste -command {send cmd paste}",
-	"button .plumb -text plumb -command {send cmd plumb}",
+	"button .snarf -text snarf -command {send cmd snarf; focus .l}",
+	"button .paste -text paste -command {send cmd paste; focus .l}",
+	"button .plumb -text plumb -command {send cmd plumb; focus .l}",
 	"entry .find",
 	"bind .find <Key-\n> {send cmd find}",
 	"bind .find <Control-n> {send cmd findnext}",
@@ -246,7 +246,6 @@ init(ctxt: ref Draw->Context, args: list of string)
 			(s, nil) := readfile("/dev/snarf");
 			if(str->drop(s, "^\n") == nil) {
 				tkcmd(".l insert insert '"+s);
-				tkcmd("focus .l; update");
 				continue;
 			}
 			err := winwrite(curwin, s);
