@@ -111,13 +111,7 @@ tkcmds := array[] of {
 
 	"listbox .targs -font /fonts/pelm/unicode.8.font -width 14w",
 	"pack .targs -side right -in .side -fill y -expand 1",
-	"bind .targs <ButtonRelease-1> {send cmd winsel}",
-	"bind .targs <Control-p> {send cmd prevwin}",
-	"bind .targs <Control-n> {send cmd nextwin}",
-	"bind .targs <Control-k> {send cmd lastwin}",
-	"bind .targs <Control-z> {send cmd prevactivewin}",
-	"bind .targs <Control-x> {send cmd nextactivewin}",
-	"bind .targs <Control-f> {focus .find}",
+	"bind .targs <ButtonRelease-1> {send cmd winsel; focus .l}",
 	"bind .targs <Control-t> {focus .l}",
 
 	"pack .m.text -in .m -fill both -expand 1",
@@ -279,20 +273,26 @@ init(ctxt: ref Draw->Context, args: list of string)
 			off := 0;
 			if(curwin != nil)
 				off = curwin.listindex;
-			for(i = len windows; i >= 0; i--)
-				if(windows[(i+off)%len windows].state & (Data|Highlight)) {
-					windows[(i+off)%len windows].show();
-					break;
-				}
+			which := array[] of {Highlight, Data, Meta};
+		done:
+			for(w := 0; w < len which; w++)
+				for(i = len windows; i >= 0; i--)
+					if(windows[(i+off)%len windows].state & which[w]) {
+						windows[(i+off)%len windows].show();
+						break done;
+					}
 		"nextactivewin" =>
 			off := 0;
 			if(curwin != nil)
 				off = curwin.listindex;
-			for(i = 0; i < len windows; i++)
-				if(windows[(i+off)%len windows].state & (Data|Highlight)) {
-					windows[(i+off)%len windows].show();
-					break;
-				}
+			which := array[] of {Highlight, Data, Meta};
+		done:
+			for(w := 0; w < len which; w++)
+				for(i = 0; i < len windows; i++)
+					if(windows[(i+off)%len windows].state & which[w]) {
+						windows[(i+off)%len windows].show();
+						break done;
+					}
 		"say" =>
 			line := tkcmd(".l get");
 			if(line == nil)
@@ -402,7 +402,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 			(nil, yview) = str->splitstrl(yview, " ");
 			if(yview != nil) {
 				yview = yview[1:];
-				lastvis = real yview >= 0.98 || int yview >= 1;
+				lastvis = real yview >= 0.95 || int yview >= 1;
 			}
 		}
 		say("lastvis: "+string lastvis);
@@ -419,7 +419,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 			win.addline(uncrap(m), tag);
 			hl := highlight(win.srv.lnick, lowercase(m));
 			if(hl >= 0)
-				tkcmd(sprint(".%s tag add hl {end -1c linestart +%dc} {end -1 linestart +%dc +%dc}; update", win.tkid, hl, hl, len win.srv.nick));
+				tkcmd(sprint(".%s tag add hl {end -1c linestart +%dc} {end -1 linestart +%dc +%dc}", win.tkid, hl, hl, len win.srv.nick));
 			if(nlines == 1 && win != curwin) {
 				if(tag == "meta")
 					win.setstatus(Meta);
@@ -540,6 +540,10 @@ command(line: string)
 		tksay("unopened windows:");
 		for(i = 0; i < len srv.unopen; i++)
 			tksay(sprint("\t%-15s (%s)", srv.unopen[i].t0, srv.unopen[i].t1));
+	"away" =>
+		for(i := 0; i < len servers; i++)
+			if(fprint(servers[i].ctlfd, "%s", line) < 0)
+				tkwarn(sprint("%s: %r", servers[i].path));
 	* =>
 		err = curwin.ctlwrite(line);
 	}
@@ -688,7 +692,10 @@ Win.show(w: self ref Win)
 	w.setstatus(0);
 	if(curwin != nil)
 		tkcmd(sprint("pack forget .m.%s", curwin.tkid));
-	tkcmd(sprint("pack .m.%s -in .m.text -fill both -expand 1; update", w.tkid));
+
+	tkcmd(sprint("bind .l <Control-\\-> {.%s yview scroll -0.75 page}", w.tkid));
+	tkcmd(sprint("bind .l <Control-=> {.%s yview scroll 0.75 page}", w.tkid));
+	tkcmd(sprint("pack .m.%s -in .m.text -fill both -expand 1", w.tkid));
 	lastwin = curwin;
 	curwin = w;
 	tkcmd(sprint(".targs selection clear 0 end; .targs selection set %d; .targs see %d; update", curwin.listindex, curwin.listindex));

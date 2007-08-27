@@ -146,12 +146,11 @@ installation mkconfig (symlink/bind it).  now type "mk install" to
 compile and install.
 
 
+testing:
+
 todo:
-- ircfs: say "day changed" in all tagets at midnight
-- wm/irc: next/prev active should skip to state==Meta windows when there are no more highlighted or data windows.
-- wm/irc: fix scrolling when window is only just full
+- ircfs: say "day changed" in all targets at midnight
 - ircfs: for each target, keep track of which line has been read last.  when reading lines that have not been read before, return one line at a time.  makes sure the wm/irc will perform setstatus() for the lines.
-- wm/ircfs: after e.g. ctrl-k, make the focus go back to prompt.  also for ctrl-[npzx], perhaps more
 - ircfs: show user status (op,voice,none) in NAMES output
 
 - read irc rfc's, try on many networks/channels
@@ -163,3 +162,4 @@ todo:
 - wm/irc: open servers in background?  could introduce races
 - libirc: remove text() functions?  or replace them by pack() minus the newlines?
 - all: manual pages
+- wm/irc: fix scrolling when window is only just full (manual scrolling is enough remedy)
