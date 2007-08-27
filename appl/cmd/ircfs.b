@@ -108,6 +108,7 @@ status: ref Target;
 ircinch: chan of (ref Rimsg, string, string);
 ircoutch: chan of array of byte;
 ircerrch: chan of string;
+daych: chan of int;
 
 readerpid := writerpid := -1;
 
@@ -158,6 +159,9 @@ init(nil: ref Draw->Context, args: list of string)
 	ircinch = chan of (ref Rimsg, string, string);
 	ircoutch = chan[16] of array of byte;
 	ircerrch = chan of string;
+	daych = chan of int;
+
+	spawn dayticker();
 
 	navch := chan of ref Navop;
 	spawn navigator(navch);
@@ -167,6 +171,11 @@ init(nil: ref Draw->Context, args: list of string)
 	(msgc, srv) = Styxserver.new(sys->fildes(0), nav, big Qroot);
 
 	for(;;) alt {
+	<-daych =>
+		for(i := 0; i < len targets; i++)
+			if(!targets[i].dead)
+				targets[i].write("# day changed");
+
 	(m, line, err) := <-ircinch =>
 		doirc(m, line, err);
 
@@ -183,6 +192,20 @@ init(nil: ref Draw->Context, args: list of string)
 			break;
 		}
 		dostyx(gm);
+	}
+}
+
+dayticker()
+{
+	for(;;) {
+		tm := daytime->local(daytime->now());
+		secs := 24*3600-3*60 - tm.hour*3600-tm.min*60;
+		if(secs > 0)
+			sys->sleep(1000*secs);
+		tm = daytime->local(daytime->now());
+		secs = 24*3600 - tm.hour*3600-tm.min*60;
+		sys->sleep(1000*secs);
+		daych <-= 1;
 	}
 }
 
@@ -336,10 +359,10 @@ doirc(m: ref Rimsg, line, err: string)
 					t := gettarget(mm.where);
 					(toks, nil) := tokens(mm.params[2], " ", -1);
 					for(; toks != nil; toks = tl toks) {
-						name := hd toks;
-						if(name != nil && (name[0] == '@' || name[0] == '+'))
-							name = name[1:];
-						t.newjoined = addnick(t.newjoined, name);
+						nick := name := hd toks;
+						if(nick != nil && (nick[0] == '@' || nick[0] == '+'))
+							nick = nick[1:];
+						t.newjoined = addnick(t.newjoined, nick);
 						users = addnick(users, name);
 					}
 					msg = "users: "+concat(users);

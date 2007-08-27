@@ -147,12 +147,11 @@ compile and install.
 
 
 testing:
-
-todo:
 - ircfs: say "day changed" in all targets at midnight
-- ircfs: for each target, keep track of which line has been read last.  when reading lines that have not been read before, return one line at a time.  makes sure the wm/irc will perform setstatus() for the lines.
 - ircfs: show user status (op,voice,none) in NAMES output
 
+todo:
+- ircfs: for each target, keep track of which line has been read last.  when reading lines that have not been read before, return one line at a time.  makes sure the wm/irc will perform setstatus() for the lines.  or to complicated?
 - read irc rfc's, try on many networks/channels
 - find ways to crash ircfs and wm/irc, and fix it
 - ircfs: unify reading/writing irc messages in /appl/lib/irc.b?  messages are almost bidirectional?
