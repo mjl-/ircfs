@@ -12,6 +12,13 @@ Irc: module {
 	RPLnamesdone:	con 366;
 	RPLnickinuse:	con 433;
 
+	RPLwhoisuser:	con 311;
+	RPLwhoisserver:	con 312;
+	RPLwhoisoperator:	con 313;
+	RPLwhoisidle:	con 317;
+	RPLendofwhois:	con 318;
+	RPLwhoischannels:	con 319;
+
 	Maximsglen:	con 512;
 
 	ischannel:	fn(name: string): int;
@@ -56,7 +63,8 @@ Irc: module {
 		Pong =>
 			who, m: string;
 		Mode =>
-			where, mode, params: string;
+			where: string;
+			modes: list of (string, string);
 		Kick =>
 			where, who, m: string;
 		Whois =>
@@ -76,7 +84,8 @@ Irc: module {
 		Nick =>
 			name: string;
 		Mode =>
-			who, mode, modeparams: string;
+			where: string;
+			modes: list of (string, string);
 		Quit or Error or Squit =>
 			m: string;
 		Join =>

@@ -10,6 +10,7 @@ include "irc.m";
 sys: Sys;
 str: String;
 sprint: import sys;
+prefix: import str;
 
 desttypes := array[] of {
 	301, 311, 312, 313, 317, 318, 319,	# nick as first token
@@ -101,7 +102,9 @@ Timsg.pack(m: self ref Timsg): string
 	Part =>		s += sprint("PART %s", mm.where);
 	Quit =>		s += sprint("QUIT :%s", mm.m);
 	Pong =>		s += sprint("PONG %s %s", mm.who, mm.m);
-	Mode =>		s += sprint("MODE %s %s %s", mm.where, mm.mode, mm.params);
+	Mode =>		s += sprint("MODE %s", mm.where);
+			for(l := mm.modes; l != nil; l = tl l)
+				s += sprint(" %s %s", (hd l).t0, (hd l).t1);
 	Kick =>		s += sprint("KICK %s %s %s", mm.where, mm.who, mm.m);
 	Names =>	s += sprint("NAMES %s", mm.name);
 	Invite =>	s += sprint("INVITE %s %s", mm.who, mm.where);
@@ -128,7 +131,10 @@ Timsg.text(m: self ref Timsg): string
 	Part =>		s += sprint("Part(%q)", mm.where);
 	Quit =>		s += sprint("Quit(%q)", mm.m);
 	Pong =>		s += sprint("Pong(%q, %q)", mm.who, mm.m);
-	Mode =>		s += sprint("Mode(%q, %q, %q)", mm.where, mm.mode, mm.params);
+	Mode =>		s += sprint("Mode(%q", mm.where);
+			for(l := mm.modes; l != nil; l = tl l)
+				s += sprint(", %q, %q", (hd l).t0, (hd l).t1);
+			s += ")";
 	Kick =>		s += sprint("Kick(%q, %q, %q", mm.where, mm.who, mm.m);
 	Names =>	s += sprint("Names(%q)", mm.name);
 	Invite =>	s += sprint("Invite(%q, %q)", mm.who, mm.where);
@@ -146,7 +152,10 @@ Rimsg.text(m: self ref Rimsg): string
 	s += "Rimsg.";
 	pick mm := m {
 	Nick =>	s += sprint("Nick(%q)", mm.name);
-	Mode =>	s += sprint("Mode(%q, %q, %q)", mm.who, mm.mode, mm.modeparams);
+	Mode =>	s += sprint("Mode(%q", mm.where);
+		for(l := mm.modes; l != nil; l = tl l)
+			s += sprint(", %q, %q", (hd l).t0, (hd l).t1);
+		s += ")";
 	Quit =>	s += sprint("Quit(%q)", mm.m);
 	Error =>
 		s += sprint("Error(%q)", mm.m);
@@ -181,7 +190,7 @@ Rimsg.text(m: self ref Rimsg): string
 
 Rimsg.unpack(s: string): (ref Rimsg, string)
 {
-	prefix, cmd: string;
+	pre, cmd: string;
 	f: ref From;
 
 	if(len s <= 2 || s[len s-2: len s] != "\r\n")
@@ -190,10 +199,10 @@ Rimsg.unpack(s: string): (ref Rimsg, string)
 
 	# parse possible prefix
 	if(s[0] == ':') {
-		(prefix, s) = str->splitl(s, " ");
+		(pre, s) = str->splitl(s, " ");
 		if(s == nil || len s[1:] == 0)
 			return (nil, "parsing: message contains prefix but no command");
-		f = parsefrom(prefix[1:]);
+		f = parsefrom(pre[1:]);
 		s = s[1:];
 	}
 
@@ -230,12 +239,20 @@ Rimsg.unpack(s: string): (ref Rimsg, string)
 			return (nil, "bad nick message, missing param");
 		return (ref Rimsg.Nick(f, cmd, params[0]), nil);
 	"MODE" =>
-		if(len params != 2 && len params != 3)
+		if(len params < 2)
 			return (nil, "bad params for mode");
-		modeparams := "";
-		if(len params == 3)
-			modeparams = params[2];
-		return (ref Rimsg.Mode(f, cmd, params[0], params[1], modeparams), nil);
+		i := 1;
+		modes: list of (string, string);
+		while(i < len params) {
+			if(!prefix("-", params[i]) && !prefix("+", params[i]))
+				return (nil, "bad params for mode");
+			mode := params[i++];
+			modeparams := "";
+			if(i < len params && prefix("-", params[i]) || prefix("+", params[i]))
+				modeparams = params[i++];
+			modes = (mode, modeparams)::modes;
+		}
+		return (ref Rimsg.Mode(f, cmd, params[0], modes), nil);
 	"QUIT" or "ERROR" or "SQUIT" =>
 		if(len params > 1)
 			return (nil, "bad params for quit/error/squit");

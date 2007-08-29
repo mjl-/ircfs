@@ -276,11 +276,14 @@ doirc(m: ref Rimsg, line, err: string)
 				mwrite(mm.name, sprint("%s %s is now known as %s", stamp(), mm.f.nick, mm.name));
 		}
 	Mode =>
-		s := sprint("%s mode %s %s by %s", stamp(), mm.mode, mm.modeparams, mm.f.nick);
-		if(lowercase(mm.who) == ic.lnick)
+		modes := "";
+		for(l := mm.modes; l != nil; l = tl l)
+			modes += sprint(" %s %s", (hd l).t0, (hd l).t1);
+		s := sprint("%s mode%s by %s", stamp(), modes, mm.f.nick);
+		if(lowercase(mm.where) == ic.lnick)
 			status.write("# "+s+"\n");
 		else
-			mwrite(mm.who, s);
+			mwrite(mm.where, s);
 	Quit =>
 		if(ic.fromself(mm.f)) {
 			mwriteall(sprint("%s you have quit from irc: %s", stamp(), mm.m));
@@ -341,14 +344,6 @@ doirc(m: ref Rimsg, line, err: string)
 					changestate(Connected);
 				else
 					warn("RPLwelcome while already connected");
-			irc->RPLaway =>	
-				t := gettarget(mm.where);
-				now := daytime->now();
-				if(t.mtime+10*60 >= now && msg == t.prevaway)
-					silent = 1;
-				t.mtime = now;
-				t.prevaway = msg;
-				msg = "away: "+msg;
 
 			irc->RPLtopic =>	msg = "topic: "+msg;
 			irc->RPLtopicset =>	msg = "topic set by: "+msg;
@@ -379,6 +374,30 @@ doirc(m: ref Rimsg, line, err: string)
 				t.joined = t.newjoined;
 				t.newjoined = array[0] of string;
 				msg = "end users";
+
+
+			irc->RPLaway =>	
+				t := findtargetname(mm.where);
+				if(t == nil || t.dead) {
+					t = status;
+				} else {
+					now := daytime->now();
+					if(t.mtime+10*60 >= now && msg == t.prevaway)
+						silent = 1;
+					t.mtime = now;
+					t.prevaway = msg;
+					msg = "away: "+msg;
+					
+				}
+				mwrite(t.name, sprint("%s %s", stamp(), msg));
+				silent = 1;
+
+			irc->RPLwhoisuser or irc->RPLwhoischannels or irc->RPLwhoisidle or irc->RPLendofwhois or irc->RPLwhoisserver or irc->RPLwhoisoperator =>
+				t := findtargetname(mm.where);
+				if(t == nil || t.dead)
+					t = status;
+				mwrite(t.name, sprint("%s %s", stamp(), msg));
+				silent = 1;
 			}
 		if(!silent) {
 			if(mm.where != nil)
@@ -721,7 +740,7 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		}
 		err = writemsg(ref Timsg.Nick(rem));
 	"umode" =>
-		err = writemsg(ref Timsg.Mode(ic.nick, rem, nil));
+		err = writemsg(ref Timsg.Mode(ic.nick, (rem, nil)::nil));
 	"whois" =>
 		err = writemsg(ref Timsg.Whois(rem));
 	"names" or "n" =>
@@ -775,14 +794,13 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		}
 		mode := cmd[0:1];
 		(toks, nil) = tokens(rem, " ", -1);
-		modes := params := "";
 		while(toks != nil && err == nil) {
+			modes: list of (string, string);
 			for(i := 0; i < 3 && toks != nil; i++) {
-				modes += mode;
-				params += " "+hd toks;
+				modes = (way+mode, hd toks)::modes;
 				toks = tl toks;
 			}
-			err = writemsg(ref Timsg.Mode(t.name, way+modes, params[1:]));
+			err = writemsg(ref Timsg.Mode(t.name, modes));
 		}
 	"mode" =>
 		if(t.id == 0 || !t.ischan)
@@ -790,7 +808,7 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		(toks, rem) = tokens(rem, " ", 1);
 		if(toks == nil)
 			return replyerror(m, "missing mode");
-		err = writemsg(ref Timsg.Mode(t.name, hd toks, rem));
+		err = writemsg(ref Timsg.Mode(t.name, (hd toks, rem)::nil));
 
 	"part" =>
 		if(t.id == 0)
@@ -922,7 +940,8 @@ ircreader(pidc: chan of int, addr, newnick: string)
 			break;
 		}
 		ircinch <-= (m, l, merr);
-		say("have imsg: "+m.text());
+		if(merr != nil)
+			say("have imsg: "+m.text());
 	}
 }
 
