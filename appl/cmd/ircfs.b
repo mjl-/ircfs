@@ -380,16 +380,15 @@ doirc(m: ref Rimsg, line, err: string)
 				t := findtargetname(mm.where);
 				if(t == nil || t.dead) {
 					t = status;
-				} else {
-					now := daytime->now();
-					if(t.mtime+10*60 >= now && msg == t.prevaway)
-						silent = 1;
-					t.mtime = now;
-					t.prevaway = msg;
-					msg = "away: "+msg;
-					
 				}
-				mwrite(t.name, sprint("%s %s", stamp(), msg));
+				now := daytime->now();
+				if(t.mtime+10*60 >= now && msg == t.prevaway)
+					silent = 1;
+				t.mtime = now;
+				t.prevaway = msg;
+				msg = "away: "+msg;
+				if(!silent)
+					mwrite(t.name, sprint("%s %s", stamp(), msg));
 				silent = 1;
 
 			irc->RPLwhoisuser or irc->RPLwhoischannels or irc->RPLwhoisidle or irc->RPLendofwhois or irc->RPLwhoisserver or irc->RPLwhoisoperator =>
