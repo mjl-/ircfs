@@ -938,9 +938,9 @@ ircreader(pidc: chan of int, addr, newnick: string)
 			ircerrch <-= merr;
 			break;
 		}
-		ircinch <-= (m, l, merr);
-		if(merr != nil)
+		if(m != nil)
 			say("have imsg: "+m.text());
+		ircinch <-= (m, l, merr);
 	}
 }
 
