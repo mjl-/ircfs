@@ -174,7 +174,7 @@ init(nil: ref Draw->Context, args: list of string)
 	<-daych =>
 		for(i := 0; i < len targets; i++)
 			if(!targets[i].dead)
-				targets[i].write("# day changed");
+				targets[i].write("# day changed\n");
 
 	(m, line, err) := <-ircinch =>
 		doirc(m, line, err);
@@ -204,8 +204,9 @@ dayticker()
 			sys->sleep(1000*secs);
 		tm = daytime->local(daytime->now());
 		secs = 24*3600 - tm.hour*3600-tm.min*60;
-		sys->sleep(1000*secs);
+		sys->sleep(secs*1000);
 		daych <-= 1;
+		sys->sleep(3*1000);
 	}
 }
 
