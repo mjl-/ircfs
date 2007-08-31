@@ -248,7 +248,7 @@ Rimsg.unpack(s: string): (ref Rimsg, string)
 				return (nil, "bad params for mode");
 			mode := params[i++];
 			modeparams := "";
-			if(i < len params && (prefix("-", params[i]) || prefix("+", params[i])))
+			if(i < len params && !prefix("-", params[i]) && !prefix("+", params[i]))
 				modeparams = params[i++];
 			modes = (mode, modeparams)::modes;
 		}
