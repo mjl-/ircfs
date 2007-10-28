@@ -96,6 +96,8 @@ Timsg.pack(m: self ref Timsg): string
 	Privmsg =>	s += sprint("PRIVMSG %s :%s", mm.who, mm.m);
 	Notice =>	s += sprint("NOTICE %s :%s", mm.who, mm.m);
 	Join =>		s += sprint("JOIN %s", mm.where);
+			if(mm.key != nil)
+				s += " "+mm.key;
 	Away =>		s += sprint("AWAY :%s", mm.m);
 	Topicget =>	s += sprint("TOPIC %s", mm.where);
 	Topicset =>	s += sprint("TOPIC %s :%s", mm.where, mm.m);

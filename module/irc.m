@@ -49,7 +49,7 @@ Irc: module {
 		Privmsg or Notice =>
 			who, m: string;
 		Join =>
-			where: string;
+			where, key: string;
 		Away =>
 			m: string;
 		Part =>

@@ -147,8 +147,6 @@ compile and install.
 
 
 testing:
-- ircfs: say "day changed" in all targets at midnight
-- ircfs: show user status (op,voice,none) in NAMES output
 - ircfs: fix channel MODE for multiple targets, e.g. +o
 - ircfs: only use target for WHOIS response if target already exists, if it doesn't, make it go to the status window
 

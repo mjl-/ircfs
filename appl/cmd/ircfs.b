@@ -583,7 +583,9 @@ again:
 	for(;;) {
 		navop := <-c;
 		say("have navop");
-		t := findtarget(int navop.path>>8);
+		id := int navop.path>>8;
+		q := int navop.path&16rff;
+		t := findtarget(id);
 		pick op := navop {
 		Stat =>
 			say("navop stat");
@@ -594,12 +596,19 @@ again:
 
 		Walk =>
 			say("navop walk");
-			case int op.path&16rff {
-			Qroot =>
-				if(op.name == "..") {
-					op.reply <-= (dir(Qroot, starttime), nil);
-					continue again;
+			if(op.name == "..") {
+				destq := Qroot;
+				mtime := starttime;
+				if(q >= Qctl && q <= Qdata) {
+					destq = Qdir|(id<<8);
+					mtime = t.mtime;
 				}
+				op.reply <-= (dir(destq, mtime), nil);
+				continue again;
+			}
+
+			case q {
+			Qroot =>
 				for(i := Qrootctl; i <= Qnick; i++)
 					if(files[i].t1 == op.name) {
 						op.reply <-= (dir(files[i].t0, starttime), nil);
@@ -613,10 +622,6 @@ again:
 				op.reply <-= (nil, Enotfound);
 
 			Qdir =>
-				if(op.name == "..") {
-					op.reply <-= (dir(Qroot, starttime), nil);
-					continue again;
-				}
 				if(t == nil || t.dead) {
 					op.reply <-= (nil, Edead);
 					continue again;
@@ -624,7 +629,7 @@ again:
 				for(i := Qctl; i <= Qdata; i++) {
 					(nil, name, nil) := files[i];
 					if(op.name == name) {
-						op.reply <-= (dir(i|int op.path&~16rff, findtarget(int op.path>>8).mtime), nil);
+						op.reply <-= (dir(i|(id<<8), t.mtime), nil);
 						continue again;
 					}
 				}
@@ -720,10 +725,13 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 	"join" =>
 		if(rem == nil)
 			return replyerror(m, "bad join");
-		if(ischannel(rem))
-			err = writemsg(ref Timsg.Join(rem));
+		(name, key) := str->splitstrl(rem, " ");
+		if(ischannel(name))
+			err = writemsg(ref Timsg.Join(name, key));
+		else if(key != nil)
+			return replyerror(m, "bogus key for non-channel");
 		else
-			gettarget(rem);
+			gettarget(name);
 	"quit" =>
 		msg := rem;
 		if(msg == nil)
