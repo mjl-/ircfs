@@ -337,7 +337,7 @@ doirc(m: ref Rimsg, line, err: string)
 		else
 			mwrite(mm.where, sprint("%s %s has been kicked by %s (%s)", stamp(), mm.who, mm.f.nick, mm.m));
 	Topic =>
-		mwrite(mm.where, sprint("%s topic is now: %s", stamp(), mm.m));
+		mwrite(mm.where, sprint("%s new topic by %s: %s", stamp(), mm.f.nick, mm.m));
 	Replytext or Errortext or Unknown =>
 		msg := concat(mm.params);
 		silent := 0;
@@ -491,7 +491,7 @@ dostyx(gm: ref Tmsg)
 				say(sprint("writing to %q: %q", t.name, hd toks));
 				err = writemsg(ref Timsg.Privmsg(t.name, hd toks));
 				if(err != nil)
-					return replyerror(m, "writing: "+err);
+					return replyerror(m, err);
 				dwrite(t.name, sprint("%s %8s: %s", stamp(), ic.nick, hd toks));
 			}
 			srv.reply(ref Rmsg.Write(m.tag, len m.data));
