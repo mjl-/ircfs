@@ -172,9 +172,12 @@ init(nil: ref Draw->Context, args: list of string)
 
 	for(;;) alt {
 	<-daych =>
+		tm := daytime->local(daytime->now());
+		wdays := array[] of {"sun", "mon", "tues", "wednes", "thurs", "fri", "satur"};
+		daystr := sprint("# day changed, %d-%d-%d, %sday\n", tm.year+1900, tm.mon+1, tm.mday, wdays[tm.wday]);
 		for(i := 0; i < len targets; i++)
 			if(!targets[i].dead)
-				targets[i].write("# day changed\n");
+				targets[i].write(daystr);
 
 	(m, line, err) := <-ircinch =>
 		doirc(m, line, err);

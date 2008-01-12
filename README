@@ -151,7 +151,13 @@ testing:
 - ircfs: only use target for WHOIS response if target already exists, if it doesn't, make it go to the status window
 
 todo:
-- look at refining handling of modes, the protocol allows many variants...
+- date in "day changed" lines
+- look at refining handling of modes, the protocol allows many variants...  one of the current errors: "bad irc message: :Basten!basten@robbasten.eu MODE #berternie.harold +oo Berteun mjl-  (bad params for mode)"
+- when writing line that is too long, duplicate "error writing: " appears.
+- allow specifying hostname or ip to connect from
+- somehow show that remote connection is not responding?
+- show topic-setter when new topic is set
+- fix ircfs-bug.txt
 
 - ircfs: for each target, keep track of which line has been read last.  when reading lines that have not been read before, return one line at a time.  makes sure the wm/irc will perform setstatus() for the lines.  or to complicated?
 - read irc rfc's, try on many networks/channels
