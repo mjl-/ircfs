@@ -933,6 +933,7 @@ ircreader(pidc: chan of int, addr, newnick: string)
 		ircerrch <-= sprint("dial %s: %r", addr);
 		return;
 	}
+	sys->fprint(conn.cfd, "keepalive");
 	say("connected");
 
 	err: string;
