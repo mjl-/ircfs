@@ -174,7 +174,7 @@ init(nil: ref Draw->Context, args: list of string)
 	<-daych =>
 		tm := daytime->local(daytime->now());
 		wdays := array[] of {"sun", "mon", "tues", "wednes", "thurs", "fri", "satur"};
-		daystr := sprint("# day changed, %d-%d-%d, %sday\n", tm.year+1900, tm.mon+1, tm.mday, wdays[tm.wday]);
+		daystr := sprint("# day changed, %d-%02d-%02d, %sday\n", tm.year+1900, tm.mon+1, tm.mday, wdays[tm.wday]);
 		for(i := 0; i < len targets; i++)
 			if(!targets[i].dead)
 				targets[i].write(daystr);
