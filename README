@@ -147,20 +147,23 @@ compile and install.
 
 
 testing:
-- ircfs: fix channel MODE for multiple targets, e.g. +o
 - ircfs: only use target for WHOIS response if target already exists, if it doesn't, make it go to the status window
-- ircfs: date in "day changed" lines
 - ircfs: show topic-setter when new topic is set
-- ircfs,wm/irc: when writing line that is too long, duplicate "writing: " appears.
 - ircfs: cmd "umode" should print own username too
 - ircfs: allow cmd "mode" without arguments?  to request current mode?
+- wm/irc: meta/data/highlight is not tracked properly.  meta overrides highlight.
 
 todo:
-- ircfs: look at refining handling of modes, the protocol allows many variants...  one of the current errors: "bad irc message: :Basten!basten@robbasten.eu MODE #berternie.harold +oo Berteun mjl-  (bad params for mode)"
+- ircfs: "09:31 mode +st  by mjl-".  add channel name?
+- ircfs: invites should print more informative message
+- ircfs: on disconnect due to connection timeout ircfs hangs.  perhaps incombination with wm/irc disappearing
+- addsrv for second time, remove again, join channel:  two channel windows come up.  also when part,join in another wm/irc.  "new window" should check if it already has one by that name.
+- wm/irc: duplicate server names.  messes things up, should give "server already present" message, or something similar.
+- ircfs: look at refining handling of modes, the protocol allows many variants...  one of the current errors: "bad irc message: :xxx!xxx@example.com MODE #channelname +oo user1 user2  (bad params for mode)"
 - ircfs,wm/irc: allow specifying hostname or ip to connect from
 - ircfs: fix ircfs-bug.txt
 - wm/irc: somehow show in interface that remote connection is not responding?
-- wm/irc: meta/data/highlight is not tracked properly.  meta overrides highlight.
+- both: longer history at startup of wm/irc.  should refine alltogether.  currently too incorrect.
 
 - ircfs: for each target, keep track of which line has been read last.  when reading lines that have not been read before, return one line at a time.  makes sure the wm/irc will perform setstatus() for the lines.  or to complicated?
 - read irc rfc's, try on many networks/channels
