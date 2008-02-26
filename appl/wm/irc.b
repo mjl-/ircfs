@@ -41,7 +41,7 @@ Srv: adt {
 	start:	fn(path: string): (ref Srv, string);
 };
 
-Meta, Data, Highlight, New: con 1<<iota;	# Win.state
+None, Meta, Data, Highlight: con iota;	# Win.state
 
 Win: adt {
 	srv:	ref Srv;
@@ -694,7 +694,7 @@ Win.show(w: self ref Win)
 	if(w == curwin)
 		return;
 	say("show");
-	w.setstatus(0);
+	w.setstatus(None);
 	if(curwin != nil)
 		tkcmd(sprint("pack forget .m.%s", curwin.tkid));
 
@@ -726,7 +726,7 @@ Win.ctlwrite(w: self ref Win, s: string): string
 
 Win.setstatus(w: self ref Win, s: int)
 {
-	if(s == w.state)
+	if(s <= w.state && s != None)
 		return;
 	c := ' ';
 	case w.state = s {
@@ -739,7 +739,6 @@ Win.setstatus(w: self ref Win, s: int)
 	if(w.id == "0")
 		ws = "";
 	tkcmd(sprint(".targs delete %d; .targs insert %d {%c%s%s}; update", w.listindex, w.listindex, c, ws, w.name));
-	w.state = s;
 }
 
 placewindow(w: ref Win): int
@@ -766,7 +765,7 @@ addwindow(w: ref Win)
 	for(i := w.listindex+1; i < len windows; i++)
 		windows[i].listindex = i;
 	tkcmd(sprint(".targs insert %d {}", w.listindex));
-	w.setstatus(New);
+	w.setstatus(None);
 	maketext(w.tkid);
 	if(len windows == 1)
 		w.show();
