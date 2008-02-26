@@ -60,7 +60,7 @@ Win: adt {
 	show:	fn(w: self ref Win);
 	close:	fn(w: self ref Win);
 	ctlwrite:	fn(w: self ref Win, s: string): string;
-	setstatus:	fn(w: self ref Win, s:int);
+	setstatus:	fn(w: self ref Win, s: int);
 };
 
 servers := array[0] of ref Srv;
@@ -106,6 +106,7 @@ tkcmds := array[] of {
 	"bind .l <Control-k> {send cmd lastwin}",
 	"bind .l <Control-z> {send cmd prevactivewin}",
 	"bind .l <Control-x> {send cmd nextactivewin}",
+	"bind .l <Control-l> {send cmd clearwin}",
 	"bind .l <Control-f> {focus .find}",
 	"bind .l {<Key-\t>} {send cmd complete}",
 
@@ -292,6 +293,9 @@ init(ctxt: ref Draw->Context, args: list of string)
 						windows[(i+off)%len windows].show();
 						break done;
 					}
+		"clearwin" =>
+			tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
+
 		"say" =>
 			line := tkcmd(".l get");
 			if(line == nil)
@@ -543,6 +547,8 @@ command(line: string)
 		for(i := 0; i < len servers; i++)
 			if(fprint(servers[i].ctlfd, "%s", line) < 0)
 				tkwarn(sprint("%s: %r", servers[i].path));
+	"clearwin" =>
+		tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
 	* =>
 		err = curwin.ctlwrite(line);
 	}
