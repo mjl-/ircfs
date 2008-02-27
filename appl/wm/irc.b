@@ -277,7 +277,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 		done:
 			for(w := 0; w < len which; w++)
 				for(i = len windows; i >= 0; i--)
-					if(windows[(i+off)%len windows].state & which[w]) {
+					if(windows[(i+off)%len windows].state == which[w]) {
 						windows[(i+off)%len windows].show();
 						break done;
 					}
@@ -289,7 +289,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 		done:
 			for(w := 0; w < len which; w++)
 				for(i = 0; i < len windows; i++)
-					if(windows[(i+off)%len windows].state & which[w]) {
+					if(windows[(i+off)%len windows].state == which[w]) {
 						windows[(i+off)%len windows].show();
 						break done;
 					}
