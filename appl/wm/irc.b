@@ -22,7 +22,6 @@ irc: Irc;
 
 sprint, fprint, print, fildes: import sys;
 Msg: import plumbmsg;
-ischannel, lowercase: import irc;
 
 Maxlines: con 8*1024;
 
@@ -31,6 +30,7 @@ datach: chan of (ref Win, list of string);
 writererrch: chan of (ref Win, string);
 usersch: chan of (ref Win, string);
 
+# connection to an ircfs
 lastsrvid := 0;
 Srv: adt {
 	id, path:	string;
@@ -44,6 +44,7 @@ Srv: adt {
 
 None, Meta, Data, Highlight: con iota;	# Win.state
 
+# window in a Srv
 Win: adt {
 	srv:	ref Srv;
 	id, tkid:	string;
@@ -324,10 +325,10 @@ init(ctxt: ref Draw->Context, args: list of string)
 				continue;
 			for(start := index; start > 0 && !str->in(l[start-1], " \t"); start--)
 				;
-			w := lowercase(l[start:index+1]);
+			w := irc->lowercase(l[start:index+1]);
 			say(sprint("start=%d index=%d w=%q", start, index, w));
 			for(j := 0; j < len curwin.users; j++) {
-				u := lowercase(curwin.users[j]);
+				u := irc->lowercase(curwin.users[j]);
 				if(len w < len u && w == u[:len w]) {
 					suf := " ";
 					if(start == 0)
@@ -381,12 +382,12 @@ init(ctxt: ref Draw->Context, args: list of string)
 		"nick" =>
 			say("new nick: "+hd tokens);
 			srv.nick = hd tokens;
-			srv.lnick = lowercase(srv.nick);
+			srv.lnick = irc->lowercase(srv.nick);
 		"disconnected" =>
 			say("disconnected");
 		"connected" =>
 			srv.nick = hd tokens;
-			srv.lnick = lowercase(srv.nick);
+			srv.lnick = irc->lowercase(srv.nick);
 			say("new nick: "+srv.nick);
 			say("now connected");
 		"connecting" =>
@@ -421,7 +422,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 			m = m[2:]+"\n";
 
 			win.addline(uncrap(m), tag);
-			hl := highlight(win.srv.lnick, lowercase(m));
+			hl := highlight(win.srv.lnick, irc->lowercase(m));
 			if(hl >= 0)
 				tkcmd(sprint(".%s tag add hl {end -1c linestart +%dc} {end -1 linestart +%dc +%dc}", win.tkid, hl, hl, len win.srv.nick));
 			if(nlines == 1 && win != curwin) {
@@ -480,8 +481,8 @@ highlight(word, m: string): int
 {
 	if(len m < len word)
 		return -1;
-	word = lowercase(word);
-	m = lowercase(m);
+	word = irc->lowercase(word);
+	m = irc->lowercase(m);
 top:
 	for(i := 0; i < len m-len word; i++) {
 		k := i;
@@ -618,7 +619,7 @@ Win.start(srv: ref Srv, id, name: string): (ref Win, string)
 	if(usersfd == nil)
 		return (nil, sprint("open: %r"));
 
-	win := ref Win(srv, id, sprint("t-%s-%s", srv.id, id), name, -1, nil, datafd, 0, nil, 0, ischannel(name), chan[16] of string, array[0] of string);
+	win := ref Win(srv, id, sprint("t-%s-%s", srv.id, id), name, -1, nil, datafd, 0, nil, 0, irc->ischannel(name), chan[16] of string, array[0] of string);
 	pidc := chan of int;
 	spawn reader(pidc, datafd, win);
 	spawn writer(pidc, datafd, win);
