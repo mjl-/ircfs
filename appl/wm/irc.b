@@ -106,7 +106,7 @@ tkcmds := array[] of {
 	"bind .l <Control-k> {send cmd lastwin}",
 	"bind .l <Control-z> {send cmd prevactivewin}",
 	"bind .l <Control-x> {send cmd nextactivewin}",
-	"bind .l <Control-l> {send cmd clearwin}",
+	#"bind .l <Control-l> {send cmd clearwin}",
 	"bind .l <Control-f> {focus .find}",
 	"bind .l {<Key-\t>} {send cmd complete}",
 
