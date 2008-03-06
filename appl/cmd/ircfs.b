@@ -267,6 +267,8 @@ doirc(m: ref Rimsg, line, err: string)
 			said := 0;
 			for(i := 0; i < len targets; i++) {
 				t := targets[i];
+				if(t.dead)
+					continue;
 				if(hasnick(t.joined, lnick) || t.lname == lnick) {
 					t.joined = delnick(t.joined, lnick);
 					t.joined = addnick(t.joined, mm.name);
@@ -304,6 +306,8 @@ doirc(m: ref Rimsg, line, err: string)
 			said := 0;
 			for(i := 0; i < len targets; i++) {
 				t := targets[i];
+				if(t.dead)
+					continue;
 				if(hasnick(t.joined, lnick) || t.lname == lnick) {
 					t.joined = delnick(t.joined, lnick);
 					writefile(t.users, sprint("-%s\n", mm.f.nick));
@@ -1289,7 +1293,8 @@ mwriteall(text: string)
 {
 	text = "# "+text+"\n";
 	for(i := 0; i < len targets; i++)
-		targets[i].write(text);
+		if(!targets[i].dead)
+			targets[i].write(text);
 }
 
 writeraw(s: string): string
