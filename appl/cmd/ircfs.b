@@ -42,7 +42,7 @@ Disconnected, Connecting, Connected: con iota;
 Dflag, dflag: int;
 logpath: string;
 netname: string;
-lastnick, lastaddr: string;
+lastnick, lastaddr, lastfromhost: string;
 state := Disconnected;
 starttime: int;
 
@@ -134,11 +134,12 @@ init(nil: ref Draw->Context, args: list of string)
 	sys->pctl(Sys->NEWPGRP, nil);
 
 	arg->init(args);
-	arg->setusage(arg->progname()+" [-Dd] [-a addr] [-n nick] [-l logpath] netname");
+	arg->setusage(arg->progname()+" [-Dd] [-a addr] [-f fromhost] [-n nick] [-l logpath] netname");
 	while((c := arg->opt()) != 0)
 		case c {
 		'a' =>	lastaddr = arg->earg();
 		'n' =>	lastnick = arg->earg();
+		'f' =>	lastfromhost = arg->earg();
 		'l' =>	logpath = arg->earg();
 			if(logpath != nil && logpath[len logpath-1] != '/')
 				logpath += "/";
@@ -721,9 +722,12 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		(cargs, nil) := tokens(rem, " ", -1);
 		case cmd {
 		"connect" =>
-			if(len cargs != 2)
-				return replyerror(m, "bad parameters, need two");
+			if(len cargs != 2 && len cargs != 3)
+				return replyerror(m, "bad parameters, need address, nick and optionally fromhost");
 			(lastaddr, lastnick) = (hd cargs, hd tl cargs);
+			lastfromhost = nil;
+			if(len cargs == 3)
+				lastfromhost = hd tl tl cargs;
 
 		"reconnect" =>
 			if(len cargs != 0)
@@ -732,7 +736,7 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 			if(lastaddr == nil || lastnick == nil)
 				return replyerror(m, "not previously connected");
 		}
-		connect(lastaddr, lastnick);
+		connect(lastaddr, lastfromhost, lastnick);
 	"join" =>
 		if(rem == nil)
 			return replyerror(m, "bad join");
@@ -881,14 +885,13 @@ disconnect()
 	readerpid = writerpid = -1;
 }
 
-connect(addr, newnick: string)
+connect(addr, fromhost, newnick: string)
 {
 	changestate(Connecting);
 	ircinch = chan of (ref Rimsg, string, string);
 	ircoutch = chan[16] of array of byte;
-	ircerrch = chan of string;
 
-	spawn ircreader(pidc := chan of int, addr, newnick);
+	spawn ircreader(pidc := chan of int, addr, fromhost, newnick);
 	readerpid = <-pidc;
 	writerpid = <-pidc;
 }
@@ -932,25 +935,94 @@ tokens(s, splitstr: string, n: int): (list of string, string)
 	return (reverse(toks), rem);
 }
 
-ircreader(pidc: chan of int, addr, newnick: string)
+# dial with a local hostname (which is translated using /net/cs)
+dialfancy(addr: string, fromhost: string): (ref (ref Sys->FD, ref Sys->FD), string)
+{
+	cfd, dfd: ref Sys->FD;
+
+	csfd := sys->open("/net/cs", Sys->ORDWR);
+	if(csfd == nil)
+		return (nil, sprint("open /net/cs: %r"));
+
+	buf := array[1024] of byte;
+	bindquery := sprint("net!%s!0", fromhost);
+	if(sys->fprint(csfd, "%s", bindquery) < 0 || (n := sys->read(csfd, buf, len buf)) <= 0)
+		return (nil, sprint("translating %q: %r", bindquery));
+
+	s := string buf[:n];
+
+	(err, bindaddr) := str->splitstrl(s, " ");
+	if(bindaddr == nil)
+		return (nil, sprint("translating %q: %s", bindquery, err));
+
+	if(sys->fprint(csfd, "%s", addr) < 0 || sys->seek(csfd, big 0, Sys->SEEKSTART) != big 0)
+		return (nil, sprint("translating %q: %s", addr, err));
+
+	for(;;) {
+		n = sys->read(csfd, buf, len buf);
+		if(n <= 0)
+			return (nil, sprint("translating %q: %r", addr));
+		s = string buf[:n];
+		(clonepath, connectaddr) := str->splitstrl(s, " ");
+		if(connectaddr == nil)
+			continue;
+
+		cfd = sys->open(clonepath, Sys->ORDWR);
+		if(cfd == nil || (n = sys->read(cfd, buf, len buf)) <= 0)
+			return (nil, sprint("open %s: %r", clonepath));
+
+		connid := int string buf[:n];
+
+		if(sys->fprint(cfd, "bind %s", bindaddr) < 0)
+			return (nil, sprint("bind %s: %r", bindaddr));
+		if(sys->fprint(cfd, "connect %s", connectaddr) < 0)
+			return (nil, sprint("connect %s: %r", connectaddr));
+
+		(protodir, nil) := str->splitstrr(sys->fd2path(cfd), "/");
+		dpath := protodir+string connid+"/data";
+
+		dfd = sys->open(dpath, Sys->ORDWR);
+		if(dfd != nil)
+			break;
+	}
+	if(dfd == nil)
+		return (nil, sprint("could not connect"));
+	return (ref (cfd, dfd), nil);
+}
+
+ircreader(pidc: chan of int, addr, fromhost, newnick: string)
 {
 	pidc <-= sys->pctl(0, nil);
-	say("dialing");
-	(ok, conn) := sys->dial(addr, nil);
-	if(ok < 0) {
-		ircerrch <-= sprint("dial %s: %r", addr);
-		return;
+	dfd, cfd: ref Sys->FD;
+
+	if(fromhost == nil) {
+		say("dialing");
+		(ok, conn) := sys->dial(addr, nil);
+		if(ok < 0) {
+			ircerrch <-= sprint("dial %s: %r", addr);
+			return;
+		}
+		dfd = conn.dfd;
+		cfd = conn.cfd;
+	} else {
+		say("dialing with bind and connect");
+		(fds, err) := dialfancy(addr, fromhost);
+		if(err != nil) {
+			ircerrch <-= "dial: "+err;
+			return;
+		}
+		(cfd, dfd) = *fds;
 	}
-	sys->fprint(conn.cfd, "keepalive");
+	sys->fprint(cfd, "keepalive");
 	say("connected");
 
 	err: string;
-	(ic, err) = Ircc.new(conn.dfd, addr, newnick, newnick);
+	(ic, err) = Ircc.new(dfd, addr, newnick, newnick);
 	if(err != nil) {
 		ircerrch <-= err;
 		return;
 	}
-	spawn ircwriter(pidc, conn.dfd);
+	spawn ircwriter(pidc, dfd);
 	say("new ircc");
 
 	for(;;) {
