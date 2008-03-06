@@ -34,8 +34,8 @@ Estatus:	con "invalid on status file";
 Enotchan:	con "only works on channel";
 Enotfound, Enotdir: import Styxservers;
 
-Histmax:	con 16*1024;
-Histdefault:	con 6*1024;
+Histmax:	con 32*1024;
+Histdefault:	con 32*1024;
 
 Disconnected, Connecting, Connected: con iota;
 
