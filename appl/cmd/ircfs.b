@@ -414,6 +414,9 @@ doirc(m: ref Rimsg, line, err: string)
 					t = status;
 				mwrite(t.name, sprint("%s %s", stamp(), msg));
 				silent = 1;
+
+			irc->RPLchannelmode =>	msg = "mode "+msg;
+			irc->RPLchannelmodechanged =>	msg = "mode changed "+msg;
 			}
 		if(!silent) {
 			if(mm.where != nil)
@@ -767,7 +770,7 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		}
 		err = writemsg(ref Timsg.Nick(rem));
 	"umode" =>
-		err = writemsg(ref Timsg.Mode(ic.nick, (rem, nil)::nil));
+		err = writemsg(ref Timsg.Mode(ic.nick, rem::nil));
 	"whois" =>
 		err = writemsg(ref Timsg.Whois(rem));
 	"names" or "n" =>
@@ -822,9 +825,9 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		mode := cmd[0:1];
 		(toks, nil) = tokens(rem, " ", -1);
 		while(toks != nil && err == nil) {
-			modes: list of (string, string);
+			modes: list of string;
 			for(i := 0; i < 3 && toks != nil; i++) {
-				modes = (way+mode, hd toks)::modes;
+				modes = way+mode::hd toks::modes;
 				toks = tl toks;
 			}
 			err = writemsg(ref Timsg.Mode(t.name, modes));
@@ -832,10 +835,8 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 	"mode" =>
 		if(t.id == 0 || !t.ischan)
 			return replyerror(m, Enotchan);
-		(toks, rem) = tokens(rem, " ", 1);
-		if(toks == nil)
-			return replyerror(m, "missing mode");
-		err = writemsg(ref Timsg.Mode(t.name, (hd toks, rem)::nil));
+		(toks, nil) = tokens(rem, " ", -1);
+		err = writemsg(ref Timsg.Mode(t.name, toks));
 
 	"part" =>
 		if(t.id == 0)

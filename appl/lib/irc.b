@@ -12,9 +12,10 @@ str: String;
 sprint: import sys;
 prefix: import str;
 
+# when adding new ones, consider adding it to irc.m too
 desttypes := array[] of {
 	301, 311, 312, 313, 317, 318, 319,	# nick as first token
-	325, 324, 331, 332, 333, 341, 346, 347, 348, 349, 366, 367, 368,	# channel as first token
+	324, 325, 329, 331, 332, 333, 341, 346, 347, 348, 349, 366, 367, 368,	# channel as first token
 	467, 471, 473, 474, 475, 476, 477, 478, 482,		# nick or channel as first token
 };
 
@@ -124,7 +125,7 @@ Timsg.pack(m: self ref Timsg): string
 	Pong =>		s += sprint("PONG %s %s", mm.who, mm.m);
 	Mode =>		s += sprint("MODE %s", mm.where);
 			for(l := mm.modes; l != nil; l = tl l)
-				s += sprint(" %s %s", (hd l).t0, (hd l).t1);
+				s += sprint(" %s", hd l);
 	Kick =>		s += sprint("KICK %s %s %s", mm.where, mm.who, mm.m);
 	Names =>	s += sprint("NAMES %s", mm.name);
 	Invite =>	s += sprint("INVITE %s %s", mm.who, mm.where);
@@ -153,7 +154,7 @@ Timsg.text(m: self ref Timsg): string
 	Pong =>		s += sprint("Pong(%q, %q)", mm.who, mm.m);
 	Mode =>		s += sprint("Mode(%q", mm.where);
 			for(l := mm.modes; l != nil; l = tl l)
-				s += sprint(", %q, %q", (hd l).t0, (hd l).t1);
+				s += sprint(", %q", hd l);
 			s += ")";
 	Kick =>		s += sprint("Kick(%q, %q, %q", mm.where, mm.who, mm.m);
 	Names =>	s += sprint("Names(%q)", mm.name);

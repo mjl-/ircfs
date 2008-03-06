@@ -5,6 +5,8 @@ Irc: module {
 
 	RPLwelcome:	con 1;
 	RPLaway:	con 301;
+	RPLchannelmode:	con 324;
+	RPLchannelmodechanged:	con 329;
 	RPLtopic:	con 332;
 	RPLtopicset:	con 333;
 	RPLinviting:	con 341;
@@ -64,7 +66,7 @@ Irc: module {
 			who, m: string;
 		Mode =>
 			where: string;
-			modes: list of (string, string);
+			modes: list of string;	# for sending, we do not split between mode and modeargs
 		Kick =>
 			where, who, m: string;
 		Whois =>
