@@ -85,7 +85,7 @@ Irc: module {
 			name: string;
 		Mode =>
 			where: string;
-			modes: list of (string, string);
+			modes: list of (string, list of string);
 		Quit or Error or Squit =>
 			m: string;
 		Join =>
@@ -98,6 +98,8 @@ Irc: module {
 			who, m: string;
 		Kick =>
 			where, who, m: string;
+		Invite =>
+			who, where: string;
 		Unknown or Replytext or Errortext =>
 			where: string;	# may be empty
 			params: array of string;

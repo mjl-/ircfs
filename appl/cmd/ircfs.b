@@ -215,11 +215,13 @@ dayticker()
 
 doirc(m: ref Rimsg, line, err: string)
 {
+	if(line != nil)
+		writefile(rawfile, ">>> "+line);
+
 	if(err != nil) {
 		status.write(sprint("# bad irc message: %s (%s)\n", stripnewline(line), err));
 		return;
 	}
-	writefile(rawfile, ">>> "+line);
 
 	pick mm := m {
 	Ping =>
@@ -282,10 +284,10 @@ doirc(m: ref Rimsg, line, err: string)
 	Mode =>
 		modes := "";
 		for(l := mm.modes; l != nil; l = tl l) {
-			(mode, arg) := (hd l);
+			(mode, args) := (hd l);
 			modes += " "+mode;
-			if(arg != "")
-				modes += " "+arg;
+			for(; args != nil; args = tl args)
+				modes += " "+hd args;
 		}
 		s := sprint("%s mode%s by %s", stamp(), modes, mm.f.nick);
 		if(lowercase(mm.where) == ic.lnick)
@@ -342,6 +344,8 @@ doirc(m: ref Rimsg, line, err: string)
 			mwrite(mm.where, sprint("%s %s has been kicked by %s (%s)", stamp(), mm.who, mm.f.nick, mm.m));
 	Topic =>
 		mwrite(mm.where, sprint("%s new topic by %s: %s", stamp(), mm.f.nick, mm.m));
+	Invite =>
+		mwrite(mm.where, sprint("%s %s invites %s to join %s", stamp(), mm.f.nick, mm.who, mm.where));
 	Replytext or Errortext or Unknown =>
 		msg := concat(mm.params);
 		silent := 0;

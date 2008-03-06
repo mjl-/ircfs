@@ -49,6 +49,24 @@ ischannel(s: string): int
 	return !str->in(s[0], "a-zA-Z[\\]^_`{|}");
 }
 
+liststr(l: list of string): string
+{
+	if(l == nil)
+		return "";
+	s := "";
+	for(; l != nil; l = tl l)
+		s += sprint("%q, ", hd l);
+	return "("+s[0:len s-2]+")";
+}
+
+rev(l: list of string): list of string
+{
+	r: list of string;
+	for(; l != nil; l = tl l)
+		r = hd l::r;
+	return r;
+}
+
 Ircc.new(fd: ref Sys->FD, addr, nick, name: string): (ref Ircc, string)
 {
 	b := bufio->fopen(fd, Bufio->OREAD);
@@ -156,7 +174,7 @@ Rimsg.text(m: self ref Rimsg): string
 	Nick =>	s += sprint("Nick(%q)", mm.name);
 	Mode =>	s += sprint("Mode(%q", mm.where);
 		for(l := mm.modes; l != nil; l = tl l)
-			s += sprint(", %q, %q", (hd l).t0, (hd l).t1);
+			s += sprint(", %q, %s", (hd l).t0, liststr((hd l).t1));
 		s += ")";
 	Quit =>	s += sprint("Quit(%q)", mm.m);
 	Error =>
@@ -171,6 +189,7 @@ Rimsg.text(m: self ref Rimsg): string
 	Ping =>	s += sprint("Ping(%q, %q)", mm.who, mm.m);
 	Pong =>	s += sprint("Pong(%q, %q)", mm.who, mm.m);
 	Kick =>	s += sprint("Kick(%q, %q, %q)", mm.where, mm.who, mm.m);
+	Invite =>	s += sprint("Invite(%q, %q)", mm.who, mm.where);
 	Unknown or Replytext or Errortext =>
 		which := "";
 		case tagof m {
@@ -243,16 +262,16 @@ Rimsg.unpack(s: string): (ref Rimsg, string)
 	"MODE" =>
 		if(len params < 2)
 			return (nil, "bad params for mode");
+		modes: list of (string, list of string);
 		i := 1;
-		modes: list of (string, string);
 		while(i < len params) {
 			if(!prefix("-", params[i]) && !prefix("+", params[i]))
 				return (nil, "bad params for mode");
 			mode := params[i++];
-			modeparams := "";
-			if(i < len params && !prefix("-", params[i]) && !prefix("+", params[i]))
-				modeparams = params[i++];
-			modes = (mode, modeparams)::modes;
+			modeparams: list of string;
+			while(i < len params && !prefix("-", params[i]) && !prefix("+", params[i]))
+				modeparams = params[i++]::modeparams;
+			modes = (mode, rev(modeparams))::modes;
 		}
 		return (ref Rimsg.Mode(f, cmd, params[0], modes), nil);
 	"QUIT" or "ERROR" or "SQUIT" =>
@@ -300,6 +319,11 @@ Rimsg.unpack(s: string): (ref Rimsg, string)
 		2 =>	return (ref Rimsg.Kick(f, cmd, params[0], params[1], nil), nil);
 		3 =>	return (ref Rimsg.Kick(f, cmd, params[0], params[1], params[2]), nil);
 		* =>	return (nil, "bad params for kick");
+		}
+	"INVITE" =>
+		case len params {
+		2 =>	return (ref Rimsg.Invite(f, cmd, params[0], params[1]), nil);
+		* =>	return (nil, "bad params for invite");
 		}
 	* =>
 		if(str->take(cmd, "0-9") != cmd || len cmd != 3)
