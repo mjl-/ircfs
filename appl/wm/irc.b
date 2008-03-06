@@ -33,7 +33,7 @@ usersch: chan of (ref Win, string);
 # connection to an ircfs
 lastsrvid := 0;
 Srv: adt {
-	tkid:	string;
+	id:	string;		# unique id taken from lastsrvid
 	path:	string;		# ircfs location
 	ctlfd, eventfd:	ref Sys->FD;
 	nick, lnick:	string;	# our name
@@ -628,7 +628,7 @@ Win.start(srv: ref Srv, id, name: string): (ref Win, string)
 	if(usersfd == nil)
 		return (nil, sprint("open: %r"));
 
-	win := ref Win(srv, id, sprint("t-%s-%s", srv.tkid, id), name, -1, nil, datafd, 0, nil, 0, irc->ischannel(name), chan[16] of string, nil);
+	win := ref Win(srv, id, sprint("t-%s-%s", srv.id, id), name, -1, nil, datafd, 0, nil, 0, irc->ischannel(name), chan[16] of string, nil);
 	pidc := chan of int;
 	spawn reader(pidc, datafd, win);
 	spawn writer(pidc, datafd, win);
