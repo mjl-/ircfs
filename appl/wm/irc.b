@@ -67,6 +67,8 @@ Win: adt {
 	close:	fn(w: self ref Win);
 	ctlwrite:	fn(w: self ref Win, s: string): string;
 	setstatus:	fn(w: self ref Win, s: int);
+	visibletail:	fn(w: self ref Win): (int, int);
+	scrolltail:	fn(w: self ref Win, seetop, seebottom: int);
 };
 
 servers := array[0] of ref Srv;
@@ -79,6 +81,7 @@ sflag: int;
 readhistsize: string;
 t: ref Tk->Toplevel;
 wmctl: chan of string;
+lineheight: int;
 
 
 WmIrc: module
@@ -121,6 +124,8 @@ tkcmds := array[] of {
 	"bind .targs <ButtonRelease-1> {send cmd winsel; focus .l}",
 	"bind .targs <Control-t> {focus .l}",
 
+	"text .tmptext",
+	"pack .tmptext -in .m.text",
 	"pack .m.text -in .m -fill both -expand 1",
 	"pack .l -in .m -fill x",
 	"pack .m -side right -fill both -expand 1",
@@ -128,7 +133,6 @@ tkcmds := array[] of {
 	"pack propagate . 0",
 	". configure -width 800 -height 600",
 	"focus .l",
-	"update",
 };
 
 maketext(id: string)
@@ -190,6 +194,12 @@ init(ctxt: ref Draw->Context, args: list of string)
 	tk->namechan(t, cmd, "cmd");
 	for(i := 0; i < len tkcmds; i++)
 		tkcmd(tkcmds[i]);
+	lineinfo := tkcmd(".tmptext dlineinfo 1.0");
+	tkcmd("pack forget .tmptext; destroy .tmptext; update");
+	linetoks := sys->tokenize(lineinfo, " ").t1;
+	if(lineinfo == nil || linetoks == nil)
+		fail("could not get lineheight");
+	lineheight = int hd tl tl tl linetoks;
 
 	eventch = chan of (ref Srv, list of string);
 	datach = chan of (ref Win, list of string);
@@ -403,18 +413,8 @@ init(ctxt: ref Draw->Context, args: list of string)
 			win.addline("eof\n", "warning");
 			continue;
 		}
-		say(sprint("have %d lines, from path=%s name=%s", len lines, win.srv.path, win.name));
-		lastvis := 1;
-		yview := tkcmd(sprint(".%s yview", win.tkid));
-		say("yview: "+yview);
-		if(yview != nil && yview[0] != '!') {
-			(nil, yview) = str->splitstrl(yview, " ");
-			if(yview != nil) {
-				yview = yview[1:];
-				lastvis = real yview >= 0.95 || int yview >= 1;
-			}
-		}
-		say("lastvis: "+string lastvis);
+		(seetop, seebottom) := win.visibletail();
+
 		nlines := len lines;
 		for(; lines != nil; lines = tl lines) {
 			m := hd lines;
@@ -438,8 +438,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 					win.setstatus(Data);
 			}
 		}
-		if(lastvis)
-			tkcmd(sprint(".%s see {end -1c lineend}", win.tkid));
+		win.scrolltail(seetop, seebottom);
 		tkcmd("update");
 
 	(w, err) := <-writererrch =>
@@ -715,6 +714,9 @@ Win.show(w: self ref Win)
 	tkcmd(sprint("bind .l <Control-\\-> {.%s yview scroll -0.75 page}", w.tkid));
 	tkcmd(sprint("bind .l <Control-=> {.%s yview scroll 0.75 page}", w.tkid));
 	tkcmd(sprint("pack .m.%s -in .m.text -fill both -expand 1", w.tkid));
+	(seetop, seebottom) := w.visibletail();
+	w.scrolltail(seetop, seebottom);
+
 	lastwin = curwin;
 	curwin = w;
 	tkcmd(sprint(".targs selection clear 0 end; .targs selection set %d; .targs see %d; update", curwin.listindex, curwin.listindex));
@@ -753,6 +755,28 @@ Win.setstatus(w: self ref Win, s: int)
 	if(w.id == "0")
 		ws = "";
 	tkcmd(sprint(".targs delete %d; .targs insert %d {%c%s%s}; update", w.listindex, w.listindex, c, ws, w.name));
+}
+
+Win.visibletail(w: self ref Win): (int, int)
+{
+	where := tkcmd(sprint("see -where .%s", w.tkid));
+	textlines := int hd tl tl tl sys->tokenize(where, " ").t1/lineheight;
+
+	seetop := tkcmd(sprint(".%s dlineinfo {end -%d lines}", w.tkid, textlines)) != nil;
+	seebottom := tkcmd(sprint(".%s dlineinfo {end -2 lines}", w.tkid)) != nil;
+	return (seetop, seebottom);
+}
+
+Win.scrolltail(w: self ref Win, seetop, seebottom: int)
+{
+	where := tkcmd(sprint("see -where .%s", w.tkid));
+	textlines := int hd tl tl tl sys->tokenize(where, " ").t1/lineheight;
+
+	if(seebottom && !seetop)
+		tkcmd(sprint(".%s yview {end -%d lines}", w.tkid, textlines));
+	
+	if(seebottom)
+		tkcmd(sprint(".%s see {end -1c lineend}", w.tkid));
 }
 
 placewindow(w: ref Win): int
