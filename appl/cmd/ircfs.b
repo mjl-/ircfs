@@ -281,8 +281,12 @@ doirc(m: ref Rimsg, line, err: string)
 		}
 	Mode =>
 		modes := "";
-		for(l := mm.modes; l != nil; l = tl l)
-			modes += sprint(" %s %s", (hd l).t0, (hd l).t1);
+		for(l := mm.modes; l != nil; l = tl l) {
+			(mode, arg) := (hd l);
+			modes += " "+mode;
+			if(arg != "")
+				modes += " "+arg;
+		}
 		s := sprint("%s mode%s by %s", stamp(), modes, mm.f.nick);
 		if(lowercase(mm.where) == ic.lnick)
 			status.write("# "+s+"\n");
