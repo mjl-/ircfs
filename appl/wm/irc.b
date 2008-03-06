@@ -33,11 +33,15 @@ usersch: chan of (ref Win, string);
 # connection to an ircfs
 lastsrvid := 0;
 Srv: adt {
-	id, path:	string;
+	tkid:	string;
+	path:	string;		# ircfs location
 	ctlfd, eventfd:	ref Sys->FD;
-	nick, lnick:	string;
+	nick, lnick:	string;	# our name
 	eventpid:	int;
-	open, unopen, dead:	array of ref (string, string);
+	# the tuple is (name, id), id is the unique target id from ircfs
+	open:	array of ref (string, string);	# ctl+data files openend, alive at ircfs end
+	unopen:	array of ref (string, string);	# alive at ircfs end, but not opened by us
+	dead:	array of ref (string, string);	# dead at the ircfs end, still opened by us
 
 	start:	fn(path: string): (ref Srv, string);
 };
@@ -55,7 +59,7 @@ Win: adt {
 	pids:	list of int;
 	state, ischan:	int;
 	writec:	chan of string;
-	users:	array of string;
+	users:	list of string;
 
 	start:	fn(srv: ref Srv, id, name: string): (ref Win, string);
 	addline:	fn(w: self ref Win, l: string, tag: string);
@@ -327,13 +331,13 @@ init(ctxt: ref Draw->Context, args: list of string)
 				;
 			w := irc->lowercase(l[start:index+1]);
 			say(sprint("start=%d index=%d w=%q", start, index, w));
-			for(j := 0; j < len curwin.users; j++) {
-				u := irc->lowercase(curwin.users[j]);
-				if(len w < len u && w == u[:len w]) {
+			for(ul := curwin.users; ul != nil; ul = tl ul) {
+				u := irc->lowercase(hd ul);
+				if(str->prefix(w, u)) {
 					suf := " ";
 					if(start == 0)
 						suf = ": ";
-					tkcmd(sprint(".l delete %d %d; .l insert %d '%s", start, index+1, start, curwin.users[j]+suf));
+					tkcmd(sprint(".l delete %d %d; .l insert %d '%s", start, index+1, start, hd ul+suf));
 					tkcmd("update");
 					break;
 				}
@@ -453,9 +457,14 @@ init(ctxt: ref Draw->Context, args: list of string)
 				continue;
 			}
 			say(sprint("userline=%q", s));
+			user := s[1:];
 			case s[0] {
-			'+' =>	w.users = add(w.users, s[1:]);
-			'-' =>	w.users = del(w.users, s[1:]);
+			'+' =>	w.users = user::w.users;
+			'-' =>	users: list of string;
+				for(; w.users != nil; w.users = tl w.users)
+					if(hd w.users != user)
+						users = user::w.users;
+				w.users = users;
 			* =>	warn("bad user line: "+s);
 			}
 		}
@@ -619,7 +628,7 @@ Win.start(srv: ref Srv, id, name: string): (ref Win, string)
 	if(usersfd == nil)
 		return (nil, sprint("open: %r"));
 
-	win := ref Win(srv, id, sprint("t-%s-%s", srv.id, id), name, -1, nil, datafd, 0, nil, 0, irc->ischannel(name), chan[16] of string, array[0] of string);
+	win := ref Win(srv, id, sprint("t-%s-%s", srv.tkid, id), name, -1, nil, datafd, 0, nil, 0, irc->ischannel(name), chan[16] of string, nil);
 	pidc := chan of int;
 	spawn reader(pidc, datafd, win);
 	spawn writer(pidc, datafd, win);
