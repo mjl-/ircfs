@@ -36,6 +36,7 @@ Srv: adt {
 	id, path:	string;
 	ctlfd, eventfd:	ref Sys->FD;
 	nick, lnick:	string;
+	eventpid:	int;
 	open, unopen, dead:	array of ref (string, string);
 
 	start:	fn(path: string): (ref Srv, string);
@@ -523,6 +524,7 @@ command(line: string)
 			else
 				i++;
 		servers = del(servers, srv);
+		kill(srv.eventpid);
 	"addwin" =>
 		rem = str->drop(rem, " \t");
 		win: ref Win;
@@ -564,15 +566,17 @@ Srv.start(path: string): (ref Srv, string)
 	ctlfd := sys->open(path+"/ctl", Sys->OWRITE);
 	if(ctlfd == nil)
 		return (nil, sprint("open: %r"));
-	srv := ref Srv(string (lastsrvid++), path, ctlfd, eventfd, nil, nil,
+	srv := ref Srv(string (lastsrvid++), path, ctlfd, eventfd, nil, nil, 0,
 		array[0] of ref (string, string), array[0] of ref (string, string), array[0] of ref (string, string));
 
-	spawn eventreader(eventfd, srv);
+	spawn eventreader(pidc := chan of int, eventfd, srv);
+	srv.eventpid = <-pidc;
 	return (srv, nil);
 }
 
-eventreader(fd: ref Sys->FD, srv: ref Srv)
+eventreader(pidc: chan of int, fd: ref Sys->FD, srv: ref Srv)
 {
+	pidc <-= sys->pctl(0, nil);
 	b := bufio->fopen(fd, Sys->OREAD);
 	if(b == nil)
 		fail("bufio fopen: %r");
@@ -924,7 +928,7 @@ del[T](a: array of T, e: T): array of T
 
 kill(pid: int)
 {
-	if((fd := sys->open(sprint("/prog/%d/ctl", pid), Sys->OWRITE)) != nil)
+	if(pid >= 0 && (fd := sys->open(sprint("/prog/%d/ctl", pid), Sys->OWRITE)) != nil)
 		fprint(fd, "kill");
 }
 
