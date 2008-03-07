@@ -506,7 +506,7 @@ top:
 command(line: string)
 {
 	(cmd, rem) := str->splitstrl(line, " ");
-	if(curwin == nil && cmd != "addsrv" && cmd != "exit") {
+	if(curwin == nil && cmd != "add" && cmd != "exit") {
 		tkwarn("no window context");
 		return;
 	}
@@ -518,14 +518,14 @@ command(line: string)
 	"exit" =>
 		killgrp(sys->pctl(0, nil));
 		exit;
-	"addsrv" =>
+	"add" =>
 		rem = str->drop(rem, " \t");
 		say(sprint("adding server path=%q", rem));
 		srv: ref Srv;
 		(srv, err) = Srv.start(rem);
 		if(err == nil)
 			servers = add(servers, srv);
-	"delsrv" =>
+	"del" =>
 		srv := curwin.srv;
 		for(i := 0; i < len windows;)
 			if(windows[i].srv == srv)
@@ -774,7 +774,6 @@ Win.scrolltail(w: self ref Win, seetop, seebottom: int)
 
 	if(seebottom && !seetop)
 		tkcmd(sprint(".%s yview {end -%d lines}", w.tkid, textlines));
-	
 	if(seebottom)
 		tkcmd(sprint(".%s see {end -1c lineend}", w.tkid));
 }
