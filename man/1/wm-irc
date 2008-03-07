@@ -1,0 +1,178 @@
+.TH WM-IRC 1
+.SH NAME
+irc \- graphical interface to the irc file system
+.SH SYNOPSIS
+.B wm/irc
+[
+.B -ds
+] [
+.B -h
+.I histsize
+]
+.I path ...
+.SH DESCRIPTION
+.B Wm/irc
+is a Tk interface to irc file systems as served by
+.IR ircfs (4).
+The main text area contains the communication of a channel or a user query.  Such a channel or user query is called an
+.I "irc directory"
+in ircfs, and corresponds to a
+.IR window
+in wm/irc.
+Below this main window, an input entry allows new text and commands to be sent.
+Atop the main window are buttons to snarf, paste or plumb the current text selection,
+and an input entry and find-button to search for text.
+Left of these elements is a listing with names of opened irc directories.  Selecting one displays it on the main text area.
+
+.PP
+At startup, the
+.I paths
+given on the command-line are opened.  Each path should adhere to the file system layout served by ircfs.
+All irc directories are opened as windows.
+
+.PP
+.B Wm/irc
+strips specials characters from the input that cause colors, underlines and bold fonts to be displayed in other irc clients.
+Occurrences of our nick name are highlighted in yellow.
+Activity on windows is shown by a single character left to the name of the window, in the list on the left.  The status is cleared (the character set to a space) when a window is shown.  Highlights and text in user queries have the highest priority and are displayed as a `=';  text in channels is displayed as a `+';  meta information (such as joins and topic changes) is displayed as `-'.
+
+.SS Options
+.TP
+.B -d
+Enable debugging output.
+.TP
+.B -s
+Do not automatically add windows for all `irc directories' ircfs knows.  By default, each directory is opened.
+.TP
+.BI -h " histsize"
+Do not read more than
+.I histsize
+bytes of backlog from ircfs when opening a new window.  Useful on slow connections.
+
+.SS Commands
+Commands can be entered in the input entry at the bottom of the screen.
+All lines starting with a slash are treated as commands.
+Lines starting with two slashes are treated as text with one of the slashes removed.
+.B Wm/irc
+determines whether the command is one of its own known commands and handles it immediately if so.
+Otherwise, it written to the
+.I ctl
+file of the corresponding irc directory.
+See
+.IR ircfs (4)
+for commands understood by ircfs.
+
+Commands handled by wm/irc:
+.TP
+.B close
+Closes the current
+.I window
+and corresponding irc directory.
+It does not issue any kind of close or quit command to ircfs.
+.TP
+.B exit
+Exit
+.BR wm/irc .
+It does not issue any kind of close or quit command to ircfs.
+.TP
+.BI add " path"
+Start serving the ircfs from mountpoint
+.IR path .
+Unless
+.B -s
+was specified, a window is opened for each irc directory.
+.TP
+.BI del
+Remove all references, including windows, to the ircfs of the current window.
+.TP
+.BI addwin " id"
+Open the irc directory
+.I id
+of the ircfs of the current window (e.g.
+.IR /mnt/irc/ircnet/id/ ).
+.TP
+.B clearwin
+Clear the currently visible window.
+.TP
+.B windows
+Print the list of irc directories exported by ircfs.
+Three lists are printed, a window/directory is only in one them at a time.
+.I Open
+are those currently open as a window in wm/irc and alive at ircfs.
+.I Unopen
+targets are those alive at ircfs but not opened in wm/irc.
+This can be due to explicitly closing a windows with the
+.IR close -command
+or by starting with
+.BR -s .
+.I Dead
+targets are dead at ircfs but still listed and viewable in wm/irc.
+.TP
+.BI away " msg"
+Marks user as away with
+.I msg
+on all servers.
+If
+.I msg
+is not present, the user is marked as present again.
+
+.SS Shortcuts
+Several shortcuts for common actions are available.
+Unless noted otherwise, they only work with the cursor in the text input entry at the bottom.
+.TP
+.BR "control p" " and " "control n"
+Show the previous or next window, the window above/below the one currently selected.  Wraps to the bottom or top.
+.TP
+.BR "control z" " and " "control x"
+Show the previous active window.  Like
+.I control-p
+and
+.I control-n
+but selects the window with the highest status.
+.TP
+.B "control k"
+Switch to the previously selected window again.
+Useful for switching between a newly activated window and the current one.
+.TP
+.B "control f"
+Switch focus to the
+.I find
+input entry.
+.TP
+.B "control n"
+Find next match.  Works only with focus on the
+.I find
+input entry.
+.TP
+.B "control t"
+Switch focus to the text input entry.
+Works with focus on the list on the left, in the find entry and main window.
+.TP
+.BR "control -" " and " "control ="
+Scroll up/down in the main text window.
+.TP
+.B "tab"
+Auto-complete the current word as a user name in a channel.
+
+.SH EXAMPLES
+To start and mount a new ircfs and use it from wm/irc:
+.EX
+	mkdir /mnt/irc
+	mkdir /mnt/irc/freenode
+	mount {ircfs freenode} /mnt/irc/freenode
+	wm/irc /mnt/irc/freenode
+
+	# now type this in the input entry at the bottom to connect as "inferno":
+	/connect net!irc.freenode.net!6667 inferno
+
+	# and to join a channel "inferno"
+	/join #inferno
+.EE
+.SH SOURCE
+.B /appl/wm/irc.b
+.SH SEE ALSO
+.IR ircfs (4).
+.SH BUGS
+Plumbing and snarf & paste are done using buttons.  Using acme chording, such as implemented in
+.IR wm/sh (1),
+would be much better.

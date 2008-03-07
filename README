@@ -67,16 +67,16 @@ listbox on the left shows all windows grouped by server, window "0"
 a name will show the contents for that window.
 
 text can be said by typing it in the bottom entry.  lines starting
-with an / are considered to be commands and written to the windows
+with a / are considered to be commands and written to the windows
 ctl file on ircfs (with the slash removed).  a few commands are
 directly interpreted by wm/irc:
 
 close
 	close the current window and remove from listed windows
-addsrv
+add
         add new server, single argument must be a path to root ircfs
         directory
-delsrv
+del
         remove the current server including all its channel/query
         windows
 exit
@@ -90,6 +90,8 @@ windows
         name
 addwin
 	add window to listbox, single argument must be directory name
+clearwin
+	clear the current window
 
 wm/irc has quite some features to make use comfortable:
 - nick completion using tab
@@ -147,32 +149,17 @@ compile and install.
 
 
 testing:
-- ircfs: only use target for WHOIS response if target already exists, if it doesn't, make it go to the status window
-- ircfs: show topic-setter when new topic is set
-- ircfs: cmd "umode" should print own username too
-- ircfs: allow cmd "mode" without arguments?  to request current mode?
-- wm/irc: meta/data/highlight is not tracked properly.  meta overrides highlight.
 
 todo:
-- ircfs: "09:31 mode +st  by mjl-".  add channel name?
-- ircfs: invites should print more informative message
-- ircfs: on disconnect due to connection timeout ircfs hangs.  perhaps incombination with wm/irc disappearing
-- addsrv for second time, remove again, join channel:  two channel windows come up.  also when part,join in another wm/irc.  "new window" should check if it already has one by that name.
-- wm/irc: duplicate server names.  messes things up, should give "server already present" message, or something similar.
-- ircfs: look at refining handling of modes, the protocol allows many variants...  one of the current errors: "bad irc message: :xxx!xxx@example.com MODE #channelname +oo user1 user2  (bad params for mode)"
-- ircfs,wm/irc: allow specifying hostname or ip to connect from
+- both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
+- all: manual pages
+- ircfs: on disconnect due to connection timeout ircfs hangs.  perhaps in combination with wm/irc disappearing
 - ircfs: fix ircfs-bug.txt
 - wm/irc: somehow show in interface that remote connection is not responding?
-- both: longer history at startup of wm/irc.  should refine alltogether.  currently too incorrect.
 
-- ircfs: for each target, keep track of which line has been read last.  when reading lines that have not been read before, return one line at a time.  makes sure the wm/irc will perform setstatus() for the lines.  or to complicated?
 - read irc rfc's, try on many networks/channels
 - find ways to crash ircfs and wm/irc, and fix it
 - ircfs: unify reading/writing irc messages in /appl/lib/irc.b?  messages are almost bidirectional?
 - ircfs: perhaps add the more obscure commands: info, ison, links, list, lusers, motd, note, ping, servlist, squery?, stats, time, trace, version, userhost, whowas
-- both: remove some debug messages
 - all: clean up, cluster code that deals with same things, group the tk commands in wm/irc
 - wm/irc: open servers in background?  could introduce races
-- libirc: remove text() functions?  or replace them by pack() minus the newlines?
-- all: manual pages
-- wm/irc: fix scrolling when window is only just full (manual scrolling is enough remedy)
