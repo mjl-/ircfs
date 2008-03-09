@@ -28,10 +28,11 @@ names (or the shorter n), me (for ctcp action), notice, invite,
 version, time, ping (all three ctcp requests), kick, op, ban, voice,
 deop, unban, devoice, mode, part, topic.
 
-most ctl usage can be guessed;  connect takes two arguments: a
-network address and a nickname.
+most ctl usages can be guessed;  connect takes two or three arguments: a
+network address, a nickname and optionally the hostname or ip address
+from which to initiate the connection.
 
-from /event events can be read such as new or closed channels/queries
+from /event, events can be read such as new or closed channels/queries
 ("new n name", "del n"), connection state changes such as "connecting",
 "connected nick" or "disconnected", and nick changes such as "nick
 nick".
@@ -45,26 +46,26 @@ writing to /raw makes ircfs write these messages to the irc server.
 
 reading from /n/name returns the name of the channel or user.
 
-reading from /n/users is only userful if it is a channel: it returns
+reading from /n/users is only useful if it is a channel: it returns
 lines in the form of "+user" and "-user" when a user joins or parts.
 
 writing to /n/data makes ircfs say those lines on the channel/user.
 multiple lines can be written in one write.
 
 reading from /n/data returns lines of the form "+ xx:xx uuuuuser:
-text\n" and " for text being said at time xx:xx by uuuuuser, and
+text\n" for text being said at time xx:xx by uuuuuser, and
 of the form "# xx:xx text" for meta-lines such as mode/topic changes
-or users joining/leaving.  by default, a history of some 6KB is
+or users joining/leaving.  by default, a history of some 32KB is
 returned, the bytes of history to read can be set with a wstat on
 an open fid to the file.
 
 
 wm/irc is a program that reads one or more "irc directories", i.e.
 directories served by one or more ircfs-en.  each such ircfs is
-called a "server", each channel or query is called a "window".  the
-listbox on the left shows all windows grouped by server, window "0"
-(the status window) is moved one character to the left.  selecting
-a name will show the contents for that window.
+called a "server", each channel or query with a user is called a
+"window".  the listbox on the left shows all windows grouped by
+server, window "0" (the status window) is moved one character to
+the left.  selecting a name will show the contents for that window.
 
 text can be said by typing it in the bottom entry.  lines starting
 with a / are considered to be commands and written to the windows
@@ -151,8 +152,8 @@ compile and install.
 testing:
 
 todo:
+- both: implement a new /n/data type of line that is like meta but doesn't change channel statuses in wm/irc.  for "day changed" messages.
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
-- all: manual pages
 - ircfs: on disconnect due to connection timeout ircfs hangs.  perhaps in combination with wm/irc disappearing
 - ircfs: fix ircfs-bug.txt
 - wm/irc: somehow show in interface that remote connection is not responding?
