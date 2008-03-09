@@ -154,7 +154,7 @@ Scroll up/down in the main text window.
 .B "tab"
 Auto-complete the current word as a user name in a channel.
 
-.SH EXAMPLES
+.SH EXAMPLE
 To start and mount a new ircfs and use it from wm/irc:
 .EX
 	mkdir /mnt/irc
@@ -176,3 +176,5 @@ To start and mount a new ircfs and use it from wm/irc:
 Plumbing and snarf & paste are done using buttons.  Using acme chording, such as implemented in
 .IR wm/sh (1),
 would be much better.
+.br
+Since ircfs has no way of letting wm/irc now which data has been read before (e.g. by a recent invocation of wm/irc), wm/irc is likely to generate status changes (e.g. highlights) for events that have already been seen by the user.

@@ -1,0 +1,171 @@
+.TH IRCFS 4
+.SH NAME
+ircfs \- irc file server
+.SH SYNOPSIS
+.B ircfs
+[
+.B -Dd
+] [
+.B -a
+.I addr
+] [
+.B -f
+.I fromhost
+] [
+.B -n
+.I nick
+] [
+.B -l
+.I logpath
+]
+.I netname
+.SH DESCRIPTION
+.B Ircfs
+maintains a connection to an irc server and exports it using styx.
+Communication lines (channels or queres to users) are represented by a directory with a unique sequence number as name.  The files in the directory allow the user to read lines being said on the channel, say new lines, and execute
+commands such as setting the topic or kicking people.  A directory with the name `0' is always present, providing status messages such as irc connection errors and certain irc messages.
+
+.SS Options
+.TP
+.B -d
+Enable debugging.
+.TP
+.B -D
+Print styx traces.
+.TP
+.BI -a " addr"
+Use
+.I addr
+as irc server.  Note that ircfs does not automatically connect at startup.  Use the `reconnect' after startup to make the connection.
+.TP
+.BI -f " fromhost"
+Make connection that come from ip address or host name
+.IR fromhost .
+.TP
+.BI -n " nick"
+Use
+.I nick
+as nick when connection.  The same applies as for
+.BR -a .
+.TP
+.BI -l " logpath
+Log all data to files
+.IR logpath/name .
+.SS Hierarchy
+The following file hierarchy is exported:
+.TP
+.B /ctl
+The following commands are understood.  The first is the command, the others are parameters.
+.IR reconnect ,
+.IR "connect address nick [fromhost]" ,
+.IR disconnect ,
+.IR "quit [message]" ,
+.IR "join channel" ,
+.IR "away [message]" ,
+.IR back ,
+.IR "nick nick" ,
+.I umode
+(to request the user mode),
+.IR "whois nick" ,
+.I "invite nick channel"
+and
+.IR time ,
+.I version
+and
+.I ping
+(these last three are ctcp messages).  Commands are directly issued to the irc server, possible responses can be read from the status directory data file
+.IR /0/data .
+.TP
+.B /event
+Reads from this read-only file will block until an event occurs.  Events are returned as single lines.  The first word indicates the type of event.
+.I "new n name"
+signals that a new directory
+.I n
+with
+channel or user name
+.I name
+is available.
+For example after a
+.I join
+or an incoming user query.
+.I "del n"
+means directory
+.I n
+has been closed.
+For example after a
+.IR part .
+Irc connection status changes are:
+.IR connecting ,
+.IR "connected nick" ,
+.IR disconnected' ,
+and
+.I "nick nick",
+with
+.I nick
+being our current or new nick name.
+.TP
+.B /nick
+This read-only file returns our current nick or the nick used when connecting.
+.TP
+.B /raw
+Reading blocks until an irc message is read from or written to the irc server.  This message is returned with `<<<' or `>>>' prepended.  Writes are written on the irc connection verbatim and will also result in that line to be seen by readers of the file.
+.TP
+.B /n
+Connection directory.  Each channel or user query is represented by a directory.  The special directory `/0' is reserved for connection status messages.
+.TP
+.B /n/ctl
+for the channel or user query.  Commands accepted by
+.I /ctl
+are also understood by
+.IR /n/ctl ,
+modulo some commands that do not work on the status directory.
+Additional commands:
+.IR names
+or the shorter alias
+.IR n
+(these only work on channels, they list the users present),
+.I "me message"
+(a ctcp `action'),
+.IR "notice message" ,
+.IR "mode [mode]" ,
+.IR "part [message]" ,
+.IR "topic [topic]" .
+The following commands only work on channels and require one or more user names as parameters.
+.IR kick ,
+.IR op ,
+.IR deop ,
+.IR ban ,
+.IR unban ,
+.IR voice ,
+.IR devoice .
+.TP
+.B /n/data
+Data written to this file is sent to the channel or user query.  A write can contain multiple lines.  Reads on this file block until activity occurs on the channel or query.  Each line will start with two characters, `+ ' for normal text or `# ' for meta text.  Meta text is information about the channel, such as users joining/leaving a channel, new topics, mode changes, etc.  These characters are nearly always followed by a timestamp of the form `hh:mm ', followed by the message.
+.br
+Every time the date changes, a `day changed' meta text is printed.
+.TP
+.B /n/name
+Reading returns the name of the channel or the user.  For the status directory `0' the string `(netname)' is returned,
+with
+.I netname
+from the command-line.  This file is read-only.
+.TP
+.B /n/users
+This file is only useful if the directory represents a channel.  Reads will return lines of the form `+user' and `-user' for joined and parted or quit users.  This allows clients to keep track of who is currently in a channel.
+.SH EXAMPLE
+To run ircfs and export its files:
+.EX
+	ndb/cs
+	# note: make sure the paths exist
+	mount {ircfs -l $home/irclog/freenode -a net!irc.freenode.net!6667 \
+		-n ircfsuser freenode} /mnt/irc/freenode
+	styxlisten -A net!*!6872 {export /mnt/irc}
+.EE
+.SH SEE ALSO
+.IR wm-irc (1).
+.SH SOURCE
+.B /appl/cmd/ircfs.b
+.SH BUGS
+Ircfs does not provide information to readers whether data has been read.
+.br
+Day changes messages are treated as "meta" text.  They should be of a lower importance.
