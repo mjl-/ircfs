@@ -196,8 +196,8 @@ init(ctxt: ref Draw->Context, args: list of string)
 	tkclient->init();
 	(t, wmctl) = tkclient->toplevel(ctxt, "", "irc", Tkclient->Appl);
 
-	cmd := chan of string;
-	tk->namechan(t, cmd, "cmd");
+	tkcmdchan := chan of string;
+	tk->namechan(t, tkcmdchan, "cmd");
 	for(i := 0; i < len tkcmds; i++)
 		tkcmd(tkcmds[i]);
 	tkcmd(sprint(". configure -width %d -height %d", width, height));
@@ -241,257 +241,276 @@ init(ctxt: ref Draw->Context, args: list of string)
 			tkclient->wmctl(t, menu);
 		}
 
-	bcmd := <-cmd =>
-		r: string;
-		(bcmd, r) = str->splitstrl(bcmd, " ");
-		say(sprint("tk ui cmd: %q", bcmd));
-		case bcmd {
-		"find" or "findnext" =>
-			if(curwin == nil)
-				continue;
-			start := "1.0";
-			if(bcmd == "findnext") {
-				nstart := tkcmd(sprint(".%s tag nextrange search 1.0", curwin.tkid));
-				if(nstart != nil && nstart[0] != '!')
-					(start, nil) = str->splitstrl(nstart, " ");
-			}
-			tkcmd(sprint(".%s tag remove search 1.0 end", curwin.tkid));
-			pattern := tkcmd(".find get");
-			if(pattern != nil) {
-				index := tkcmd(sprint(".%s search [.find get] {%s +%dc}", curwin.tkid, start, len pattern));
-				say("find, index: "+index);
-				if(index != nil && index[0] != '!')
-					tkcmd(sprint(".%s tag add search %s {%s +%dc}; .%s see %s", curwin.tkid, index, index, len pattern, curwin.tkid, index));
-			}
-			tkcmd("update");
-
-		"snarf" =>
-			if(curwin == nil)
-				continue;
-			s := selection();
-			if(s != nil)
-				writefile("/dev/snarf", s);
-
-		"paste" =>
-			if(curwin == nil)
-				continue;
-			(s, nil) := readfile("/dev/snarf");
-			if(str->drop(s, "^\n") == nil) {
-				tkcmd(".l insert insert '"+s);
-				continue;
-			}
-			err := curwin.writetext(s);
-			if(err != nil)
-				tkwarn("writing: "+err);
-
-		"plumb" =>
-			if(curwin == nil)
-				continue;
-			s := selection();
-			if(s != nil)
-				plumbsend(s, sprint("%s/%s/", curwin.srv.path, curwin.id), "name", curwin.name);
-
-		"nextwin" =>
-			if(curwin != nil)
-				windows[(curwin.listindex+1)%len windows].show();
-
-		"prevwin" =>
-			if(curwin != nil)
-				windows[(curwin.listindex-1+len windows)%len windows].show();
-
-		"lastwin" =>
-			if(lastwin != nil)
-				lastwin.show();
-
-		"prevactivewin" =>
-			off := 0;
-			if(curwin != nil)
-				off = curwin.listindex;
-			which := array[] of {Highlight, Data, Meta};
-		done:
-			for(w := 0; w < len which; w++)
-				for(i = len windows; i >= 0; i--)
-					if(windows[(i+off)%len windows].state == which[w]) {
-						windows[(i+off)%len windows].show();
-						break done;
-					}
-
-		"nextactivewin" =>
-			off := 0;
-			if(curwin != nil)
-				off = curwin.listindex;
-			which := array[] of {Highlight, Data, Meta};
-		done:
-			for(w := 0; w < len which; w++)
-				for(i = 0; i < len windows; i++)
-					if(windows[(i+off)%len windows].state == which[w]) {
-						windows[(i+off)%len windows].show();
-						break done;
-					}
-
-		"clearwin" =>
-			tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
-
-		"say" =>
-			line := tkcmd(".l get");
-			if(line == nil)
-				continue;
-			tkcmd(".l delete 0 end; update");
-			if(str->prefix("/", line) && !str->prefix("//", line)) {
-				command(line[1:]);
-				continue;
-			}
-
-			say("say line");
-			if(line[0] == '/')
-				line = line[1:];
-			err := curwin.writetext(line);
-			if(err != nil)
-				tkwarn("writing: "+err);
-
-		"complete" =>
-			if(curwin == nil)
-				continue;
-			l := tkcmd(".l get");
-
-			index := int tkcmd(".l index insert");
-			if(index < 0 || index > len l)
-				continue;
-			w := str->tolower(taketl(l[:index], "^ \t"));
-			say(sprint("complete, w %q", w));
-
-			for(ul := curwin.users; ul != nil; ul = tl ul) {
-				if(!str->prefix(w, str->tolower(hd ul)))
-					continue;
-
-				start := index-len w;
-				suf := " ";
-				if(start == 0)
-					suf = ": ";
-				tkcmd(sprint(".l delete %d %d; .l insert %d '%s", start, index, start, hd ul+suf));
-				tkcmd("update");
-				break;
-			}
-
-		"winsel" =>
-			say("winsel");
-			index := int tkcmd(".targs curselection");
-			windows[index].show();
-
-		* =>
-			warn(sprint("bad command: %q\n", bcmd));
-		}
-
-	(srv, tokens) := <-eventch =>
-		event := hd tokens;
-		tokens = tl tokens;
-		case event {
-		"new" =>
-			if(len tokens != 2) {
-				warn(sprint("bad 'new' message"));
-				continue;
-			}
-			id := hd tokens;
-			name := hd tl tokens;
-			srv.unopen = winadd(srv.unopen, ref (name, id));
-			if(!sflag || id == "0") {
-				(win, err) := Win.init(srv, id, name);
-				if(err != nil)
-					fail(err);
-				addwindow(win);
-			} else {
-				for(i = 0; i < len windows; i++)
-					if(windows[i].srv == srv && windows[i].id == "0")
-						break;
-				if(i < len windows)
-					tkwinwrite(windows[i], sprint("new window: %q (%q)", name, id), "status");
-			}
-			say(sprint("have new target, path=%q id=%q", srv.path, id));
-		"del" =>
-			say(sprint("del target %q", hd tokens));
-			srv.open = windel(srv.open, ref (nil, hd tokens));
-			srv.unopen = windel(srv.unopen, ref (nil, hd tokens));
-			
-		"nick" =>
-			say("new nick: "+hd tokens);
-			srv.nick = hd tokens;
-			srv.lnick = irc->lowercase(srv.nick);
-		"disconnected" =>
-			say("disconnected");
-		"connected" =>
-			srv.nick = hd tokens;
-			srv.lnick = irc->lowercase(srv.nick);
-			say(sprint("now connected, nick %q", srv.nick));
-		"connecting" =>
-			say("connecting");
-		}
+	bcmd := <-tkcmdchan =>
+		dotkcmd(bcmd);
 
 	(win, lines) := <-datach =>
-		if(lines == nil) {
-			win.addline("eof\n", "warning");
-			continue;
-		}
+		dodata(win, lines);
 
-		(seetop, seebottom) := win.visibletail();
+	(srv, tokens) := <-eventch =>
+		doevent(srv, tokens);
 
-		nlines := len lines;
-		for(; lines != nil; lines = tl lines) {
-			m := hd lines;
-			if(len m < 2) {
-				warn(sprint("bad data line: %q", m));
-				continue;
-			}
-			tag := "data";
-			if(m[:2] == "# ")
-				tag = "meta";
-			m = uncrap(m[2:])+"\n";
-
-			win.addline(m, tag);
-			hl := substr(win.srv.lnick, irc->lowercase(m));
-			if(hl >= 0)
-				tkcmd(sprint(".%s tag add hl {end -1c linestart +%dc} {end -1 linestart +%dc +%dc}",
-					win.tkid, hl, hl, len win.srv.nick));
-
-			# at startup, we read a backlog.  these lines will be sent many lines in one read.
-			# during normal operation we typically get one line per read.
-			# this is a simple heuristic to start without all windows highlighted...
-			if(nlines == 1 && win != curwin) {
-				if(tag == "meta")
-					win.setstatus(Meta);
-				else if(!win.ischan || hl >= 0)
-					win.setstatus(Highlight);
-				else
-					win.setstatus(Data);
-			}
-		}
-		win.scrolltail(seetop, seebottom);
-		tkcmd("update");
+	(win, s) := <-usersch =>
+		douser(win, s);
 
 	(w, err) := <-writererrch =>
 		tkwinwarn(w, "writing: "+err);
 		warn("writing: "+err);
+	}
+}
 
-	(w, s) := <-usersch =>
-		(nil, ll) := sys->tokenize(s, "\n");
-		for(; ll != nil; ll = tl ll) {
-			l := hd ll;
-			if(l != nil && l[len l-1] == '\n')
-				l = l[:len l-1];
-			if(l == nil) {
-				warn("empty user line");
-				continue;
-			}
-			say(sprint("userline=%q", l));
-			user := l[1:];
-			case l[0] {
-			'+' =>	w.users = user::w.users;
-			'-' =>	users: list of string;
-				for(; w.users != nil; w.users = tl w.users)
-					if(hd w.users != user)
-						users = user::w.users;
-				w.users = users;
-			* =>	warn(sprint("bad user line: %q", l));
-			}
+dotkcmd(cmd: string)
+{
+	(word, nil) := str->splitstrl(cmd, " ");
+	say(sprint("tk ui cmd: %q", word));
+	case word {
+	"find" or "findnext" =>
+		if(curwin == nil)
+			return;
+		start := "1.0";
+		if(word == "findnext") {
+			nstart := tkcmd(sprint(".%s tag nextrange search 1.0", curwin.tkid));
+			if(nstart != nil && nstart[0] != '!')
+				(start, nil) = str->splitstrl(nstart, " ");
+		}
+		tkcmd(sprint(".%s tag remove search 1.0 end", curwin.tkid));
+		pattern := tkcmd(".find get");
+		if(pattern != nil) {
+			index := tkcmd(sprint(".%s search [.find get] {%s +%dc}", curwin.tkid, start, len pattern));
+			say("find, index: "+index);
+			if(index != nil && index[0] != '!')
+				tkcmd(sprint(".%s tag add search %s {%s +%dc}; .%s see %s", curwin.tkid, index, index, len pattern, curwin.tkid, index));
+		}
+		tkcmd("update");
+
+	"snarf" =>
+		if(curwin == nil)
+			return;
+		s := selection();
+		if(s != nil)
+			writefile("/dev/snarf", s);
+
+	"paste" =>
+		if(curwin == nil)
+			return;
+		(s, nil) := readfile("/dev/snarf");
+		if(str->drop(s, "^\n") == nil) {
+			tkcmd(".l insert insert '"+s);
+			return;
+		}
+		err := curwin.writetext(s);
+		if(err != nil)
+			tkwarn("writing: "+err);
+
+	"plumb" =>
+		if(curwin == nil)
+			return;
+		s := selection();
+		if(s != nil)
+			plumbsend(s, sprint("%s/%s/", curwin.srv.path, curwin.id), "name", curwin.name);
+
+	"nextwin" =>
+		if(curwin != nil)
+			windows[(curwin.listindex+1)%len windows].show();
+
+	"prevwin" =>
+		if(curwin != nil)
+			windows[(curwin.listindex-1+len windows)%len windows].show();
+
+	"lastwin" =>
+		if(lastwin != nil)
+			lastwin.show();
+
+	"prevactivewin" =>
+		off := 0;
+		if(curwin != nil)
+			off = curwin.listindex;
+		which := array[] of {Highlight, Data, Meta};
+	done:
+		for(w := 0; w < len which; w++)
+			for(i := len windows; i >= 0; i--)
+				if(windows[(i+off)%len windows].state == which[w]) {
+					windows[(i+off)%len windows].show();
+					break done;
+				}
+
+	"nextactivewin" =>
+		off := 0;
+		if(curwin != nil)
+			off = curwin.listindex;
+		which := array[] of {Highlight, Data, Meta};
+	done:
+		for(w := 0; w < len which; w++)
+			for(i := 0; i < len windows; i++)
+				if(windows[(i+off)%len windows].state == which[w]) {
+					windows[(i+off)%len windows].show();
+					break done;
+				}
+
+	"clearwin" =>
+		tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
+
+	"say" =>
+		line := tkcmd(".l get");
+		if(line == nil)
+			return;
+		tkcmd(".l delete 0 end; update");
+		if(str->prefix("/", line) && !str->prefix("//", line)) {
+			command(line[1:]);
+			return;
+		}
+
+		say("say line");
+		if(line[0] == '/')
+			line = line[1:];
+		err := curwin.writetext(line);
+		if(err != nil)
+			tkwarn("writing: "+err);
+
+	"complete" =>
+		if(curwin == nil)
+			return;
+		l := tkcmd(".l get");
+
+		index := int tkcmd(".l index insert");
+		if(index < 0 || index > len l)
+			return;
+		w := str->tolower(taketl(l[:index], "^ \t"));
+		say(sprint("complete, w %q", w));
+
+		for(ul := curwin.users; ul != nil; ul = tl ul) {
+			if(!str->prefix(w, str->tolower(hd ul)))
+				return;
+
+			start := index-len w;
+			suf := " ";
+			if(start == 0)
+				suf = ": ";
+			tkcmd(sprint(".l delete %d %d; .l insert %d '%s", start, index, start, hd ul+suf));
+			tkcmd("update");
+			break;
+		}
+
+	"winsel" =>
+		say("winsel");
+		index := int tkcmd(".targs curselection");
+		windows[index].show();
+
+	* =>
+		warn(sprint("bad command: %q\n", cmd));
+	}
+}
+
+dodata(win: ref Win, lines: list of string)
+{
+	if(lines == nil) {
+		win.addline("eof\n", "warning");
+		return;
+	}
+
+	(seetop, seebottom) := win.visibletail();
+
+	nlines := len lines;
+	for(; lines != nil; lines = tl lines) {
+		m := hd lines;
+		if(len m < 2) {
+			warn(sprint("bad data line: %q", m));
+			continue;
+		}
+		tag := "data";
+		if(m[:2] == "# ")
+			tag = "meta";
+		m = uncrap(m[2:])+"\n";
+
+		win.addline(m, tag);
+		hl := substr(win.srv.lnick, irc->lowercase(m));
+		if(hl >= 0)
+			tkcmd(sprint(".%s tag add hl {end -1c linestart +%dc} {end -1 linestart +%dc +%dc}",
+				win.tkid, hl, hl, len win.srv.nick));
+
+		# at startup, we read a backlog.  these lines will be sent many lines in one read.
+		# during normal operation we typically get one line per read.
+		# this is a simple heuristic to start without all windows highlighted...
+		if(nlines == 1 && win != curwin) {
+			if(tag == "meta")
+				win.setstatus(Meta);
+			else if(!win.ischan || hl >= 0)
+				win.setstatus(Highlight);
+			else
+				win.setstatus(Data);
+		}
+	}
+	win.scrolltail(seetop, seebottom);
+	tkcmd("update");
+}
+
+doevent(srv: ref Srv, tokens: list of string)
+{
+	event := hd tokens;
+	tokens = tl tokens;
+	case event {
+	"new" =>
+		if(len tokens != 2) {
+			warn(sprint("bad 'new' message"));
+			return;
+		}
+		id := hd tokens;
+		name := hd tl tokens;
+		srv.unopen = winadd(srv.unopen, ref (name, id));
+		if(!sflag || id == "0") {
+			(win, err) := Win.init(srv, id, name);
+			if(err != nil)
+				fail(err);
+			addwindow(win);
+		} else {
+			for(i := 0; i < len windows; i++)
+				if(windows[i].srv == srv && windows[i].id == "0")
+					break;
+			if(i < len windows)
+				tkwinwrite(windows[i], sprint("new window: %q (%q)", name, id), "status");
+		}
+		say(sprint("have new target, path=%q id=%q", srv.path, id));
+	"del" =>
+		say(sprint("del target %q", hd tokens));
+		srv.open = windel(srv.open, ref (nil, hd tokens));
+		srv.unopen = windel(srv.unopen, ref (nil, hd tokens));
+		
+	"nick" =>
+		say("new nick: "+hd tokens);
+		srv.nick = hd tokens;
+		srv.lnick = irc->lowercase(srv.nick);
+	"disconnected" =>
+		say("disconnected");
+	"connected" =>
+		srv.nick = hd tokens;
+		srv.lnick = irc->lowercase(srv.nick);
+		say(sprint("now connected, nick %q", srv.nick));
+	"connecting" =>
+		say("connecting");
+	}
+}
+
+douser(w: ref Win, s: string)
+{
+	(nil, ll) := sys->tokenize(s, "\n");
+	for(; ll != nil; ll = tl ll) {
+		l := hd ll;
+		if(l != nil && l[len l-1] == '\n')
+			l = l[:len l-1];
+		if(l == nil) {
+			warn("empty user line");
+			continue;
+		}
+		say(sprint("userline=%q", l));
+		user := l[1:];
+		case l[0] {
+		'+' =>	w.users = user::w.users;
+		'-' =>	users: list of string;
+			for(; w.users != nil; w.users = tl w.users)
+				if(hd w.users != user)
+					users = user::w.users;
+			w.users = users;
+		* =>	warn(sprint("bad user line: %q", l));
 		}
 	}
 }
