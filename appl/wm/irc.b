@@ -38,29 +38,33 @@ Srv: adt {
 	ctlfd:	ref Sys->FD;
 	nick, lnick:	string;	# our name and lowercased
 	eventpid:	int;
-
-	# the tuple is (name, id), id is the unique target id from ircfs
-	open:	array of ref (string, string);	# ctl+data files openend, alive at ircfs end
-	unopen:	array of ref (string, string);	# alive at ircfs end, but not opened by us
+	win0:	cyclic ref Win;
+	wins:	cyclic list of ref Win;		# includes win0
+	unopen:	list of ref (string, string);	# name, id
 
 	init:	fn(path: string): (ref Srv, string);
+	addunopen:	fn(srv: self ref Srv, name, id: string);
+	delunopen:	fn(srv: self ref Srv, id: string);
+	haveopen:	fn(srv: self ref Srv, id: string): int;
 };
 
 None, Meta, Data, Highlight: con iota;	# Win.state
 
 # window in a Srv
 Win: adt {
-	srv:	ref Srv;
+	srv:	cyclic ref Srv;
 	id:	string;
-	tkid:	string;
 	name:	string;
-	listindex:	int;
 	ctlfd, datafd:	ref Sys->FD;
-	nlines:	int;		# lines in window
 	pids:	list of int;	# for reader, writer, usersreader
 	state, ischan:	int;
 	writec:	chan of string;
 	users:	list of string;	# with case
+	eof:	int;
+	nlines:	int;		# lines in window
+	tkid:	string;
+	listindex:	int;
+	status:	string;
 
 	init:	fn(srv: ref Srv, id, name: string): (ref Win, string);
 	writetext:	fn(w: self ref Win, s: string): string;
@@ -68,13 +72,13 @@ Win: adt {
 	show:	fn(w: self ref Win);
 	close:	fn(w: self ref Win);
 	ctlwrite:	fn(w: self ref Win, s: string): string;
-	setstatus:	fn(w: self ref Win, s: int);
+	setstate:	fn(w: self ref Win, state, draw: int);
 	visibletail:	fn(w: self ref Win): (int, int);
 	scrolltail:	fn(w: self ref Win, seetop, seebottom: int);
 };
 
-servers := array[0] of ref Srv;
-windows := array[0] of ref Win;
+servers: list of ref Srv;
+windows := array[0] of ref Win;	# all windows in all servers
 curwin, lastwin: ref Win;
 plumbed: int;
 
@@ -217,8 +221,8 @@ init(ctxt: ref Draw->Context, args: list of string)
 	for(; args != nil; args = tl args) {
 		(srv, err) := Srv.init(hd args);
 		if(err != nil)
-			fail(sprint("init srv for %q: %s", hd args, err));
-		servers = add(servers, srv);
+			fail(sprint("init srv for %q: %s", hd args, err));	# xxx don't fail?
+		servers = srv::servers;
 		say("have new srv");
 	}
 
@@ -242,7 +246,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 		}
 
 	bcmd := <-tkcmdchan =>
-		dotkcmd(bcmd);
+		dotk(bcmd);
 
 	(win, lines) := <-datach =>
 		dodata(win, lines);
@@ -259,7 +263,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 	}
 }
 
-dotkcmd(cmd: string)
+dotk(cmd: string)
 {
 	(word, nil) := str->splitstrl(cmd, " ");
 	say(sprint("tk ui cmd: %q", word));
@@ -279,7 +283,8 @@ dotkcmd(cmd: string)
 			index := tkcmd(sprint(".%s search [.find get] {%s +%dc}", curwin.tkid, start, len pattern));
 			say("find, index: "+index);
 			if(index != nil && index[0] != '!')
-				tkcmd(sprint(".%s tag add search %s {%s +%dc}; .%s see %s", curwin.tkid, index, index, len pattern, curwin.tkid, index));
+				tkcmd(sprint(".%s tag add search %s {%s +%dc}; .%s see %s",
+					curwin.tkid, index, index, len pattern, curwin.tkid, index));
 		}
 		tkcmd("update");
 
@@ -405,6 +410,7 @@ dodata(win: ref Win, lines: list of string)
 {
 	if(lines == nil) {
 		win.addline("eof\n", "warning");
+		win.eof = 1;
 		return;
 	}
 
@@ -433,11 +439,11 @@ dodata(win: ref Win, lines: list of string)
 		# this is a simple heuristic to start without all windows highlighted...
 		if(nlines == 1 && win != curwin) {
 			if(tag == "meta")
-				win.setstatus(Meta);
+				win.setstate(Meta, 1);
 			else if(!win.ischan || hl >= 0)
-				win.setstatus(Highlight);
+				win.setstate(Highlight, 1);
 			else
-				win.setstatus(Data);
+				win.setstate(Data, 1);
 		}
 	}
 	win.scrolltail(seetop, seebottom);
@@ -454,37 +460,43 @@ doevent(srv: ref Srv, tokens: list of string)
 			warn(sprint("bad 'new' message"));
 			return;
 		}
+
 		id := hd tokens;
 		name := hd tl tokens;
-		srv.unopen = winadd(srv.unopen, ref (name, id));
+		if(srv.haveopen(id)) {
+			warn(sprint("new window, but already present: %q (%q)", name, id));
+			return;
+		}
+		srv.addunopen(name, id);
 		if(!sflag || id == "0") {
 			(win, err) := Win.init(srv, id, name);
-			if(err != nil)
-				fail(err);
+			if(err != nil) {
+				tkwarn(err);
+				warn(err);
+				return;
+			}
 			addwindow(win);
-		} else {
-			for(i := 0; i < len windows; i++)
-				if(windows[i].srv == srv && windows[i].id == "0")
-					break;
-			if(i < len windows)
-				tkwinwrite(windows[i], sprint("new window: %q (%q)", name, id), "status");
-		}
+		} else if(srv.win0 != nil)
+			tkwinwrite(srv.win0, sprint("new window: %q (%q)", name, id), "status");
 		say(sprint("have new target, path=%q id=%q", srv.path, id));
+
 	"del" =>
 		say(sprint("del target %q", hd tokens));
-		srv.open = windel(srv.open, ref (nil, hd tokens));
-		srv.unopen = windel(srv.unopen, ref (nil, hd tokens));
-		
+		srv.delunopen(hd tokens);
+
 	"nick" =>
 		say("new nick: "+hd tokens);
 		srv.nick = hd tokens;
 		srv.lnick = irc->lowercase(srv.nick);
+
 	"disconnected" =>
 		say("disconnected");
+
 	"connected" =>
 		srv.nick = hd tokens;
 		srv.lnick = irc->lowercase(srv.nick);
 		say(sprint("now connected, nick %q", srv.nick));
+
 	"connecting" =>
 		say("connecting");
 	}
@@ -541,7 +553,10 @@ command(line: string)
 	err: string;
 	case cmd {
 	"close" =>
-		delwindow(curwin);
+		if(curwin == curwin.srv.win0)
+			err = "cannot remove status window";
+		else
+			delwindow(curwin);
 
 	"exit" =>
 		killgrp(sys->pctl(0, nil));
@@ -552,38 +567,50 @@ command(line: string)
 		say(sprint("adding server path=%q", rem));
 		(srv, cerr) := Srv.init(rem);
 		if(cerr == nil)
-			servers = add(servers, srv);
+			servers = srv::servers;
 		err = cerr;
 
 	"del" =>
-		for(i := 0; i < len windows;)
-			if(windows[i].srv == curwin.srv)
-				delwindow(windows[i]);
-			else
-				i++;
-		servers = del(servers, curwin.srv);
-		kill(curwin.srv.eventpid);
+		srv := curwin.srv;
+		for(wl := srv.wins; wl != nil; wl = tl wl)
+			(hd wl).close();
+		ns: list of ref Srv;
+		for(; servers != nil; servers = tl servers)
+			if(hd servers != srv)
+				ns = hd servers::ns;
+		servers = ns;
+		kill(srv.eventpid);
+		curwin = nil;
+		if(lastwin.srv == srv)
+			lastwin = nil;
+		fixwindows();
 
 	"addwin" =>
 		rem = str->drop(rem, " \t");
-		(win, cerr) := Win.init(curwin.srv, rem, nil);
-		addwindow(win);
-		say(sprint("have new target, path=%q id=%q", curwin.srv.path, rem));
-		err = cerr;
+		if(curwin.srv.haveopen(rem))
+			err = "window already open";
+		win: ref Win;
+		if(err == nil)
+			(win, err) = Win.init(curwin.srv, rem, nil);
+		if(err == nil) {
+			addwindow(win);
+			win.show();
+			say(sprint("have new target, path=%q id=%q", curwin.srv.path, rem));
+		}
 
 	"windows" =>
 		srv := curwin.srv;
-		tksay("open:");
-		for(i := 0; i < len srv.open; i++)
-			tksay(sprint("\t%-15s (%q)", srv.open[i].t0, srv.open[i].t1));
-		tksay("not open:");
-		for(i = 0; i < len srv.unopen; i++)
-			tksay(sprint("\t%-15s (%q)", srv.unopen[i].t0, srv.unopen[i].t1));
+		tkstatus("open:");
+		for(wl := rev(srv.wins); wl != nil; wl = tl wl)
+			tkstatus(sprint("\t%-15s (%q)", (hd wl).name, (hd wl).id));
+		tkstatus("not open:");
+		for(l := srv.unopen; l != nil; l = tl l)
+			tkstatus(sprint("\t%-15s (%q)", (hd l).t0, (hd l).t1));
 
 	"away" =>
-		for(i := 0; i < len servers; i++)
-			if(fprint(servers[i].ctlfd, "%s", line) < 0)
-				tkwarn(sprint("%q: %r", servers[i].path));
+		for(l := servers; l != nil; l = tl l)
+			if(fprint((hd l).ctlfd, "%s", line) < 0)
+				tkwarn(sprint("%q: %r", (hd l).path));
 
 	"clearwin" =>
 		tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
@@ -599,18 +626,40 @@ Srv.init(path: string): (ref Srv, string)
 {
 	eventb := bufio->open(path+"/event", Sys->OREAD);
 	if(eventb == nil)
-		fail("bufio open: %r");
+		fail(sprint("bufio open: %r"));
 
 	ctlfd := sys->open(path+"/ctl", Sys->OWRITE);
 	if(ctlfd == nil)
 		return (nil, sprint("open: %r"));
 
-	srv := ref Srv(string (lastsrvid++), path, ctlfd, nil, nil, 0,
-		array[0] of ref (string, string), array[0] of ref (string, string));
+	srv := ref Srv(string (lastsrvid++), path, ctlfd, nil, nil, 0, nil, nil, nil);
 
 	spawn eventreader(pidc := chan of int, eventb, srv);
 	srv.eventpid = <-pidc;
 	return (srv, nil);
+}
+
+Srv.addunopen(srv: self ref Srv, name, id: string)
+{
+	srv.delunopen(id);
+	srv.unopen = ref (name, id)::srv.unopen;
+}
+
+Srv.delunopen(srv: self ref Srv, id: string)
+{
+	unopen: list of ref (string, string);
+	for(; srv.unopen != nil; srv.unopen = tl srv.unopen)
+		if((hd srv.unopen).t1 != id)
+			unopen = hd srv.unopen::unopen;
+	srv.unopen = rev(unopen);
+}
+
+Srv.haveopen(srv: self ref Srv, id: string): int
+{
+	for(wl := srv.wins; wl != nil; wl = tl wl)
+		if((hd wl).id == id)
+			return 1;
+	return 0;
 }
 
 eventreader(pidc: chan of int, b: ref Iobuf, srv: ref Srv)
@@ -655,13 +704,13 @@ Win.init(srv: ref Srv, id, name: string): (ref Win, string)
 		return (nil, sprint("open: %r"));
 
 	tkid := sprint("t-%s-%s", srv.id, id);
-	win := ref Win(srv, id, tkid, name, -1, nil, datafd, 0, nil, 0, irc->ischannel(name), chan[8] of string, nil);
+	win := ref Win(srv, id, name, nil, datafd, nil, 0, irc->ischannel(name), chan[8] of string, nil, 0, 0, tkid, -1, nil);
+	win.setstate(None, 0);
 	pidc := chan of int;
 	spawn reader(pidc, datafd, win);
 	spawn writer(pidc, datafd, win);
 	spawn usersreader(pidc, usersfd, win);
 	win.pids = <-pidc::<-pidc::<-pidc::win.pids;
-	say("Win.init, done");
 	return (win, nil);
 }
 
@@ -672,7 +721,6 @@ reader(pidc: chan of int, fd: ref Sys->FD, win: ref Win)
 	for(;;) {
 		n := sys->read(fd, buf, len buf);
 		if(n == 0) {
-			say("reader: eof");
 			datach <-= (win, nil);
 			break;
 		}
@@ -680,7 +728,6 @@ reader(pidc: chan of int, fd: ref Sys->FD, win: ref Win)
 			warn(sprint("read error: %r"));
 			break;
 		}
-		say("reader: have data");
 		(nil, lines) := sys->tokenize(string buf[:n], "\n");
 		datach <-= (win, lines);
 	}
@@ -739,7 +786,7 @@ Win.show(w: self ref Win)
 	if(w == curwin)
 		return;
 	say("show");
-	w.setstatus(None);
+	w.setstate(None, 1);
 	if(curwin != nil)
 		tkcmd(sprint("pack forget .m.%s", curwin.tkid));
 
@@ -749,16 +796,16 @@ Win.show(w: self ref Win)
 	(seetop, seebottom) := w.visibletail();
 	w.scrolltail(seetop, seebottom);
 
+	tkcmd(sprint(".targs selection clear 0 end; .targs selection set %d; .targs see %d; update", w.listindex, w.listindex));
 	lastwin = curwin;
 	curwin = w;
-	tkcmd(sprint(".targs selection clear 0 end; .targs selection set %d; .targs see %d; update", curwin.listindex, curwin.listindex));
 }
 
 Win.close(w: self ref Win)
 {
 	for(; w.pids != nil; w.pids = tl w.pids)
 		kill(hd w.pids);
-	tkcmd(sprint("destroy .%s; destroy .m.%s", w.tkid, w.tkid));
+	tkcmd(sprint("destroy .%s; destroy .m.%s; destroy .%s-scroll", w.tkid, w.tkid, w.tkid));
 }
 
 Win.ctlwrite(w: self ref Win, s: string): string
@@ -770,12 +817,12 @@ Win.ctlwrite(w: self ref Win, s: string): string
 	return nil;
 }
 
-Win.setstatus(w: self ref Win, s: int)
+Win.setstate(w: self ref Win, state, draw: int)
 {
-	if(s <= w.state && s != None)
+	if(state <= w.state && state != None)
 		return;
 	c := ' ';
-	case w.state = s {
+	case w.state = state {
 	Highlight =>	c = '=';
 			plumbsend(nil, sprint("%s/%s/", w.srv.path, w.id), "highlight", w.name);
 	Data =>		c = '+';
@@ -784,7 +831,9 @@ Win.setstatus(w: self ref Win, s: int)
 	ws := " ";
 	if(w.id == "0")
 		ws = "";
-	tkcmd(sprint(".targs delete %d; .targs insert %d {%c%s%s}; update", w.listindex, w.listindex, c, ws, w.name));
+	w.status = sprint("%c%s", c, ws);
+	if(draw)
+		tkcmd(sprint(".targs delete %d; .targs insert %d {%s%s}; update", w.listindex, w.listindex, w.status, w.name));
 }
 
 Win.visibletail(w: self ref Win): (int, int)
@@ -808,85 +857,68 @@ Win.scrolltail(w: self ref Win, seetop, seebottom: int)
 		tkcmd(sprint(".%s see {end -1c lineend}", w.tkid));
 }
 
-placewindow(w: ref Win): int
+fixwindows()
 {
-	# windows are ordered by server, within a server the latest window at the end
-	for(srvi := 0; srvi < len servers && servers[srvi] != w.srv; srvi++)
-		;
-	# walk through all windows, when we find a window of our or an earlier server, we stop
-	for(i := len windows-1; i >= 0; i--)
-		for(j := 0; j <= srvi; j++)
-			if(windows[i].srv == servers[j])
-				return i+1;
-	return 0;
+	nwins := 0;
+	for(s := servers; s != nil; s = tl s)
+		nwins += len (hd s).wins;
+	wins := array[nwins] of ref Win;
+	i := 0;
+	curi := -1;
+	lasti := -1;
+	for(s = rev(servers); s != nil; s = tl s)
+		for(wl := rev((hd s).wins); wl != nil; wl = tl wl) {
+			w := hd wl;
+			w.listindex = i;
+			if(w == curwin)
+				curi = i;
+			if(w == lastwin)
+				lasti = i;
+			wins[i++] = w;
+		}
+
+	windows = wins;
+
+	tkcmd(sprint(".targs delete 0 end"));
+	for(i = 0; i < len windows; i++) {
+		w := windows[i];
+		tkcmd(sprint(".targs insert %d {%s%s}", w.listindex, w.status, w.name));
+	}
+
+	i = curi;
+	if(i < 0)
+		i = lasti;
+	if(i < 0 && len wins > 0)
+		i = 0;
+	if(i == curi)
+		tkcmd(sprint(".targs selection set %d; .targs see %d; update", i, i));
+	else if(i < len windows)
+		windows[i].show();
 }
 
 addwindow(w: ref Win)
 {
-	say("newwindow");
-	w.listindex = placewindow(w);
-	tail := windows[w.listindex:];
-	windows = grow(windows, 1);
-	windows[w.listindex] = w;
-	windows[w.listindex+1:] = tail;
-	for(i := w.listindex+1; i < len windows; i++)
-		windows[i].listindex = i;
-	tkcmd(sprint(".targs insert %d {}", w.listindex));
-	w.setstatus(None);
 	maketext(w.tkid);
-	if(len windows == 1)
-		w.show();
-	w.srv.open = winadd(w.srv.open, ref (w.name, w.id));
-	w.srv.unopen = windel(w.srv.unopen, ref (w.name, w.id));
+	w.srv.delunopen(w.id);
+	w.srv.wins = w::w.srv.wins;
+
+	if(w.id == "0")
+		w.srv.win0 = w;
+	fixwindows();
 }
 
 delwindow(w: ref Win)
 {
-	say("delwindow");
-	tkcmd(sprint(".targs delete %d; update", w.listindex));
-	if(winindex(w.srv.open, ref (w.name, w.id)) >= 0)
-		w.srv.unopen = winadd(w.srv.unopen, ref (w.name, w.id));
-	w.srv.open = windel(w.srv.open, ref (w.name, w.id));
-	windows = del(windows, w);
-	for(i := w.listindex; i < len windows; i++)
-		windows[i].listindex = i;
+	if(w == w.srv.win0)
+		fail("bug");
+	w.srv.wins = del(w, w.srv.wins);
+	if(!w.eof)
+		w.srv.addunopen(w.name, w.id);
 	w.close();
-	if(curwin != w)
-		return;
-	if(len windows == 0)
-		curwin = nil;
-	else if(lastwin != nil && lastwin != w)
-		lastwin.show();
-	else {
-		index := w.listindex;
-		if(index >= len windows)
-			index--;
-		windows[index].show();
-	}
-}
-
-winadd(a: array of ref (string, string), e: ref (string, string)): array of ref (string, string)
-{
-	if(winindex(a, e) < 0)
-		a = add(a, e);
-	return a;
-}
-
-windel(a: array of ref (string, string), e: ref (string, string)): array of ref (string, string)
-{
-	if((i := winindex(a, e)) >= 0) {
-		a[i:] = a[i+1:];
-		a = a[:len a-1];
-	}
-	return a;
-}
-
-winindex(a: array of ref (string, string), e: ref (string, string)): int
-{
-	for(i := 0; i < len a; i++)
-		if(a[i].t1 == e.t1)
-			return i;
-	return -1;
+	curwin = nil;
+	if(lastwin == w)
+		lastwin = nil;
+	fixwindows();
 }
 
 selection(): string
@@ -912,7 +944,7 @@ tkwarn(s: string)
 	tkwinwrite(curwin, s, "warning");
 }
 
-tksay(s: string)
+tkstatus(s: string)
 {
 	tkwinwrite(curwin, s, "status");
 }
@@ -929,21 +961,16 @@ plumbsend(text, path, attrname, attrval: string)
 writefile(p: string, s: string): string
 {
 	fd := sys->open(p, Sys->OWRITE);
-	if(fd == nil)
-		return sprint("open: %r");
-	if(sys->write(fd, d := array of byte s, len d) != len d)
-		return sprint("%r");
+	if(fd == nil || sys->write(fd, d := array of byte s, len d) != len d)
+		return sprint("open/write: %r");
 	return nil;
 }
 
 readfile(p: string): (string, string)
 {
 	fd := sys->open(p, Sys->OREAD);
-	if(fd == nil)
-		return (nil, sprint("open: %r"));
-	n := sys->readn(fd, buf := array[Sys->ATOMICIO] of byte, len buf);
-	if(n < 0)
-		return (nil, sprint("read: %r"));
+	if(fd == nil || (n := sys->readn(fd, buf := array[Sys->ATOMICIO] of byte, len buf)) < 0)
+		return (nil, sprint("open/read: %r"));
 	return (string buf[:n], nil);
 }
 
@@ -953,31 +980,6 @@ tkcmd(s: string): string
 	if(r != nil && r[0] == '!')
 		warn(sprint("tkcmd: %q: %s", s, r));
 	return r;
-}
-
-grow[T](a: array of T, n: int): array of T
-{
-	na := array[len a+n] of T;
-	na[:] = a;
-	return na;
-}
-
-add[T](a: array of T, e: T): array of T
-{
-	a = grow(a, 1);
-	a[len a-1] = e;
-	return a;
-}
-
-del[T](a: array of T, e: T): array of T
-{
-	for(i := 0; i < len a; i++)
-		if(a[i] == e) {
-			a[i:] = a[i+1:];
-			a = a[:len a-1];
-			break;
-		}
-	return a;
 }
 
 substr(sub, s: string): int
@@ -994,6 +996,23 @@ taketl(s, cl: string): string
 	for(i := len s; i > 0 && str->in(s[i-1], cl); i--)
 		;
 	return s[i:];
+}
+
+del[T](e: T, l: list of T): list of T
+{
+	r: list of T;
+	for(; l != nil; l = tl l)
+		if(hd l != e)
+			r = hd l::r;
+	return rev(r);
+}
+
+rev[T](l: list of T): list of T
+{
+	r: list of T;
+	for(; l != nil; l = tl l)
+		r = hd l::r;
+	return r;
 }
 
 kill(pid: int)
