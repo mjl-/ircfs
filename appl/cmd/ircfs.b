@@ -175,7 +175,7 @@ init(nil: ref Draw->Context, args: list of string)
 	<-daych =>
 		tm := daytime->local(daytime->now());
 		wdays := array[] of {"sun", "mon", "tues", "wednes", "thurs", "fri", "satur"};
-		daystr := sprint("# day changed, %d-%02d-%02d, %sday\n", tm.year+1900, tm.mon+1, tm.mday, wdays[tm.wday]);
+		daystr := sprint("! day changed, %d-%02d-%02d, %sday\n", tm.year+1900, tm.mon+1, tm.mday, wdays[tm.wday]);
 		for(i := 0; i < len targets; i++)
 			if(!targets[i].dead)
 				targets[i].write(daystr);
@@ -203,14 +203,14 @@ dayticker()
 {
 	for(;;) {
 		tm := daytime->local(daytime->now());
-		secs := 24*3600-3*60 - tm.hour*3600-tm.min*60;
+		secs := 24*3600-3*60 - (tm.hour*3600+tm.min*60+tm.sec);
 		if(secs > 0)
 			sys->sleep(1000*secs);
 		tm = daytime->local(daytime->now());
-		secs = 24*3600 - tm.hour*3600-tm.min*60;
-		sys->sleep(secs*1000);
+		secs = 24*3600 - (tm.hour*3600+tm.min*60+tm.sec);
+		sys->sleep(secs*1000+200);
 		daych <-= 1;
-		sys->sleep(3*1000);
+		sys->sleep(3600*1000);
 	}
 }
 

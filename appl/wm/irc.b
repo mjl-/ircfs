@@ -424,7 +424,8 @@ dodata(win: ref Win, lines: list of string)
 			continue;
 		}
 		tag := "data";
-		if(m[:2] == "# ")
+		nostatechange := m[:2] == "! ";
+		if(m[:2] == "# " || m[:2] == "! ")
 			tag = "meta";
 		m = uncrap(m[2:])+"\n";
 
@@ -437,7 +438,7 @@ dodata(win: ref Win, lines: list of string)
 		# at startup, we read a backlog.  these lines will be sent many lines in one read.
 		# during normal operation we typically get one line per read.
 		# this is a simple heuristic to start without all windows highlighted...
-		if(nlines == 1 && win != curwin) {
+		if(nlines == 1 && win != curwin && !nostatechange) {
 			if(tag == "meta")
 				win.setstate(Meta, 1);
 			else if(!win.ischan || hl >= 0)
