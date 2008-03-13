@@ -4,46 +4,47 @@ include "sys.m";
 include "draw.m";
 include "string.m";
 include "arg.m";
-include "tk.m";
-include	"tkclient.m";
 include "bufio.m";
 	bufio: Bufio;
 	Iobuf: import bufio;
 include "plumbmsg.m";
+include "tk.m";
+include "tkclient.m";
 include "irc.m";
 
 sys: Sys;
 draw: Draw;
 str: String;
+plumbmsg: Plumbmsg;
 tk: Tk;
 tkclient: Tkclient;
-plumbmsg: Plumbmsg;
 irc: Irc;
 
 sprint, fprint, print, fildes: import sys;
 Msg: import plumbmsg;
 
-Maxlines: con 8*1024;
+Windowlinesmax: con 8*1024;
 
-eventch: chan of (ref Srv, list of string);
 datach: chan of (ref Win, list of string);
-writererrch: chan of (ref Win, string);
+eventch: chan of (ref Srv, list of string);
 usersch: chan of (ref Win, string);
+writererrch: chan of (ref Win, string);
 
 # connection to an ircfs
-lastsrvid := 0;
+lastsrvid := 0;		# unique id's
 Srv: adt {
-	id:	string;		# unique id taken from lastsrvid
-	path:	string;		# ircfs location
-	ctlfd, eventfd:	ref Sys->FD;
-	nick, lnick:	string;	# our name
+	id:	string;		# lastsrvid
+	path:	string;	
+	ctlfd:	ref Sys->FD;
+	nick, lnick:	string;	# our name and lowercased
 	eventpid:	int;
+
 	# the tuple is (name, id), id is the unique target id from ircfs
 	open:	array of ref (string, string);	# ctl+data files openend, alive at ircfs end
 	unopen:	array of ref (string, string);	# alive at ircfs end, but not opened by us
 	dead:	array of ref (string, string);	# dead at the ircfs end, still opened by us
 
-	start:	fn(path: string): (ref Srv, string);
+	init:	fn(path: string): (ref Srv, string);
 };
 
 None, Meta, Data, Highlight: con iota;	# Win.state
@@ -51,17 +52,19 @@ None, Meta, Data, Highlight: con iota;	# Win.state
 # window in a Srv
 Win: adt {
 	srv:	ref Srv;
-	id, tkid:	string;
+	id:	string;
+	tkid:	string;
 	name:	string;
 	listindex:	int;
 	ctlfd, datafd:	ref Sys->FD;
-	nlines:	int;
-	pids:	list of int;
+	nlines:	int;		# lines in window
+	pids:	list of int;	# for reader, writer, usersreader
 	state, ischan:	int;
 	writec:	chan of string;
-	users:	list of string;
+	users:	list of string;	# with case
 
-	start:	fn(srv: ref Srv, id, name: string): (ref Win, string);
+	init:	fn(srv: ref Srv, id, name: string): (ref Win, string);
+	writetext:	fn(w: self ref Win, s: string): string;
 	addline:	fn(w: self ref Win, l: string, tag: string);
 	show:	fn(w: self ref Win);
 	close:	fn(w: self ref Win);
@@ -78,10 +81,12 @@ plumbed: int;
 
 dflag: int;
 sflag: int;
-readhistsize: string;
+readhistsize := big -1;
 t: ref Tk->Toplevel;
 wmctl: chan of string;
 lineheight: int;
+width := 800;
+height := 600;
 
 
 WmIrc: module
@@ -124,32 +129,32 @@ tkcmds := array[] of {
 	"bind .targs <ButtonRelease-1> {send cmd winsel; focus .l}",
 	"bind .targs <Control-t> {focus .l}",
 
-	"text .tmptext",
+	"text .tmptext",	# for calculating line height...
 	"pack .tmptext -in .m.text",
 	"pack .m.text -in .m -fill both -expand 1",
 	"pack .l -in .m -fill x",
 	"pack .m -side right -fill both -expand 1",
 	"pack .side -side left -fill y",
 	"pack propagate . 0",
-	". configure -width 800 -height 600",
 	"focus .l",
 };
 
-maketext(id: string)
+maketext(tkid: string)
 {
+	id := tkid;
 	cmds := array[] of {
 		sprint("frame .m.%s", id),
-		sprint("text .%s -wrap word -yscrollcommand {.%sscroll set}", id, id),
+		sprint("text .%s -wrap word -yscrollcommand {.%s-scroll set}", id, id),
 		sprint(".%s tag configure meta -foreground blue -font /fonts/pelm/unicode.8.font -lmargin2 6w", id),
 		sprint(".%s tag configure warning -foreground red", id),
 		sprint(".%s tag configure data -foreground black -font /fonts/pelm/unicode.8.font -lmargin2 16w", id),
 		sprint(".%s tag configure hl -background yellow", id),
 		sprint(".%s tag configure search -background orange", id),
-		sprint(".%s tag configure resp -foreground green", id),
+		sprint(".%s tag configure status -foreground green", id),
 		sprint("bind .%s <Control-f> {focus .find}", id),
 		sprint("bind .%s <Control-t> {focus .l}", id),
-		sprint("scrollbar .%sscroll -command {.%s yview}", id, id),
-		sprint("pack .%sscroll -side left -fill y -in .m.%s", id, id),
+		sprint("scrollbar .%s-scroll -command {.%s yview}", id, id),
+		sprint("pack .%s-scroll -side left -fill y -in .m.%s", id, id),
 		sprint("pack .%s -side right -in .m.%s -fill both -expand 1", id, id),
 		sprint("pack .m.%s -in .m.text", id),
 		sprint("pack forget .m.%s", id),
@@ -165,20 +170,22 @@ init(ctxt: ref Draw->Context, args: list of string)
 		fail("no window context");
 	draw = load Draw Draw->PATH;
 	str = load String String->PATH;
-	tk = load Tk Tk->PATH;
-	tkclient= load Tkclient Tkclient->PATH;
 	bufio = load Bufio Bufio->PATH;
 	arg := load Arg Arg->PATH;
 	plumbmsg = load Plumbmsg Plumbmsg->PATH;
+	tk = load Tk Tk->PATH;
+	tkclient= load Tkclient Tkclient->PATH;
 	irc = load Irc Irc->PATH;
 	irc->init(bufio);
 
 	arg->init(args);
-	arg->setusage(arg->progname()+" [-ds] [-h histsize] [path ...]");
+	arg->setusage(arg->progname()+" [-ds] [-g width height] [-h histsize] [path ...]");
 	while((c := arg->opt()) != 0)
 		case c {
 		'd' =>	dflag++;
-		'h' =>	readhistsize = string int arg->earg();
+		'g' =>	width = int arg->earg();
+			height = int arg->earg();
+		'h' =>	readhistsize = big arg->earg();
 		's' =>	sflag++;
 		* =>	fprint(fildes(2), "bad option\n");
 			arg->usage();
@@ -194,6 +201,8 @@ init(ctxt: ref Draw->Context, args: list of string)
 	tk->namechan(t, cmd, "cmd");
 	for(i := 0; i < len tkcmds; i++)
 		tkcmd(tkcmds[i]);
+	tkcmd(sprint(". configure -width %d -height %d", width, height));
+
 	lineinfo := tkcmd(".tmptext dlineinfo 1.0");
 	tkcmd("pack forget .tmptext; destroy .tmptext; update");
 	linetoks := sys->tokenize(lineinfo, " ").t1;
@@ -201,15 +210,15 @@ init(ctxt: ref Draw->Context, args: list of string)
 		fail("could not get lineheight");
 	lineheight = int hd tl tl tl linetoks;
 
-	eventch = chan of (ref Srv, list of string);
 	datach = chan of (ref Win, list of string);
-	writererrch = chan[1] of (ref Win, string);
+	eventch = chan of (ref Srv, list of string);
 	usersch = chan of (ref Win, string);
+	writererrch = chan[1] of (ref Win, string);
 
 	for(; args != nil; args = tl args) {
-		(srv, err) := Srv.start(hd args);
+		(srv, err) := Srv.init(hd args);
 		if(err != nil)
-			fail("starting srv: "+err);
+			fail(sprint("init srv for %q: %s", hd args, err));
 		servers = add(servers, srv);
 		say("have new srv");
 	}
@@ -228,7 +237,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 		case menu {
 		"exit" =>
 			killgrp(sys->pctl(0, nil));
-			return;
+			exit;
 		* =>
 			tkclient->wmctl(t, menu);
 		}
@@ -244,47 +253,57 @@ init(ctxt: ref Draw->Context, args: list of string)
 			start := "1.0";
 			if(bcmd == "findnext") {
 				nstart := tkcmd(sprint(".%s tag nextrange search 1.0", curwin.tkid));
-				if(start != nil && start[0] != '!')
+				if(nstart != nil && nstart[0] != '!')
 					(start, nil) = str->splitstrl(nstart, " ");
 			}
-			tkcmd(sprint(".%s tag remove search 1.0 end; update", curwin.tkid));
+			tkcmd(sprint(".%s tag remove search 1.0 end", curwin.tkid));
 			pattern := tkcmd(".find get");
 			if(pattern != nil) {
 				index := tkcmd(sprint(".%s search [.find get] {%s +%dc}", curwin.tkid, start, len pattern));
 				say("find, index: "+index);
 				if(index != nil && index[0] != '!')
-					tkcmd(sprint(".%s tag add search %s {%s +%dc}; .%s see %s; update", curwin.tkid, index, index, len pattern, curwin.tkid, index));
+					tkcmd(sprint(".%s tag add search %s {%s +%dc}; .%s see %s", curwin.tkid, index, index, len pattern, curwin.tkid, index));
 			}
+			tkcmd("update");
+
 		"snarf" =>
+			if(curwin == nil)
+				continue;
 			s := selection();
 			if(s != nil)
 				writefile("/dev/snarf", s);
+
 		"paste" =>
+			if(curwin == nil)
+				continue;
 			(s, nil) := readfile("/dev/snarf");
 			if(str->drop(s, "^\n") == nil) {
 				tkcmd(".l insert insert '"+s);
 				continue;
 			}
-			err := winwrite(curwin, s);
-			if(err != nil) {
-				warn("writing: "+err);
-				tkwinwarn(curwin, "writing: "+err);
-			}
+			err := curwin.writetext(s);
+			if(err != nil)
+				tkwarn("writing: "+err);
+
 		"plumb" =>
 			if(curwin == nil)
 				continue;
 			s := selection();
 			if(s != nil)
 				plumbsend(s, sprint("%s/%s/", curwin.srv.path, curwin.id), "name", curwin.name);
+
 		"nextwin" =>
 			if(curwin != nil)
 				windows[(curwin.listindex+1)%len windows].show();
+
 		"prevwin" =>
 			if(curwin != nil)
 				windows[(curwin.listindex-1+len windows)%len windows].show();
+
 		"lastwin" =>
 			if(lastwin != nil)
 				lastwin.show();
+
 		"prevactivewin" =>
 			off := 0;
 			if(curwin != nil)
@@ -297,6 +316,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 						windows[(i+off)%len windows].show();
 						break done;
 					}
+
 		"nextactivewin" =>
 			off := 0;
 			if(curwin != nil)
@@ -309,6 +329,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 						windows[(i+off)%len windows].show();
 						break done;
 					}
+
 		"clearwin" =>
 			tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
 
@@ -317,48 +338,49 @@ init(ctxt: ref Draw->Context, args: list of string)
 			if(line == nil)
 				continue;
 			tkcmd(".l delete 0 end; update");
-			if(line[0] == '/' && !(len line > 2 && line[1] == '/')) {
+			if(str->prefix("/", line) && !str->prefix("//", line)) {
 				command(line[1:]);
-			} else {
-				say("say line");
-				if(line[0] == '/')
-					line = line[1:];
-				err := winwrite(curwin, line);
-				if(err != nil)
-					tkwinwarn(curwin, "writing: "+err);
+				continue;
 			}
+
+			say("say line");
+			if(line[0] == '/')
+				line = line[1:];
+			err := curwin.writetext(line);
+			if(err != nil)
+				tkwarn("writing: "+err);
+
 		"complete" =>
 			if(curwin == nil)
 				continue;
 			l := tkcmd(".l get");
+
 			index := int tkcmd(".l index insert");
-			say(sprint("l=%q index=%d", l, index));
-			if(index == len l)
-				index--;
 			if(index < 0 || index > len l)
 				continue;
-			for(start := index; start > 0 && !str->in(l[start-1], " \t"); start--)
-				;
-			w := irc->lowercase(l[start:index+1]);
-			say(sprint("start=%d index=%d w=%q", start, index, w));
+			w := str->tolower(taketl(l[:index], "^ \t"));
+			say(sprint("complete, w %q", w));
+
 			for(ul := curwin.users; ul != nil; ul = tl ul) {
-				u := irc->lowercase(hd ul);
-				if(str->prefix(w, u)) {
-					suf := " ";
-					if(start == 0)
-						suf = ": ";
-					tkcmd(sprint(".l delete %d %d; .l insert %d '%s", start, index+1, start, hd ul+suf));
-					tkcmd("update");
-					break;
-				}
+				if(!str->prefix(w, str->tolower(hd ul)))
+					continue;
+
+				start := index-len w;
+				suf := " ";
+				if(start == 0)
+					suf = ": ";
+				tkcmd(sprint(".l delete %d %d; .l insert %d '%s", start, index, start, hd ul+suf));
+				tkcmd("update");
+				break;
 			}
 
 		"winsel" =>
 			say("winsel");
 			index := int tkcmd(".targs curselection");
 			windows[index].show();
+
 		* =>
-			print("%s\n", bcmd);
+			warn(sprint("bad command: %q\n", bcmd));
 		}
 
 	(srv, tokens) := <-eventch =>
@@ -374,7 +396,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 			name := hd tl tokens;
 			srv.unopen = winadd(srv.unopen, ref (name, id));
 			if(!sflag || id == "0") {
-				(win, err) := Win.start(srv, id, name);
+				(win, err) := Win.init(srv, id, name);
 				if(err != nil)
 					fail(err);
 				addwindow(win);
@@ -383,9 +405,9 @@ init(ctxt: ref Draw->Context, args: list of string)
 					if(windows[i].srv == srv && windows[i].id == "0")
 						break;
 				if(i < len windows)
-					tkwinwrite(windows[i], sprint("new window: %s (%s)", name, id), "resp");
+					tkwinwrite(windows[i], sprint("new window: %q (%q)", name, id), "status");
 			}
-			say(sprint("have new target, path=%s id=%s", srv.path, id));
+			say(sprint("have new target, path=%q id=%q", srv.path, id));
 		"del" =>
 			say(sprint("del target %q", hd tokens));
 			if((j := winindex(srv.open, ref (nil, hd tokens))) >= 0)
@@ -402,8 +424,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 		"connected" =>
 			srv.nick = hd tokens;
 			srv.lnick = irc->lowercase(srv.nick);
-			say("new nick: "+srv.nick);
-			say("now connected");
+			say(sprint("now connected, nick %q", srv.nick));
 		"connecting" =>
 			say("connecting");
 		}
@@ -413,22 +434,30 @@ init(ctxt: ref Draw->Context, args: list of string)
 			win.addline("eof\n", "warning");
 			continue;
 		}
+
 		(seetop, seebottom) := win.visibletail();
 
 		nlines := len lines;
 		for(; lines != nil; lines = tl lines) {
 			m := hd lines;
-			if(len m < 2)
-				continue;	# should not happen
+			if(len m < 2) {
+				warn(sprint("bad data line: %q", m));
+				continue;
+			}
 			tag := "data";
 			if(m[:2] == "# ")
 				tag = "meta";
-			m = m[2:]+"\n";
+			m = uncrap(m[2:])+"\n";
 
-			win.addline(uncrap(m), tag);
-			hl := highlight(win.srv.lnick, irc->lowercase(m));
+			win.addline(m, tag);
+			hl := substr(win.srv.lnick, irc->lowercase(m));
 			if(hl >= 0)
-				tkcmd(sprint(".%s tag add hl {end -1c linestart +%dc} {end -1 linestart +%dc +%dc}", win.tkid, hl, hl, len win.srv.nick));
+				tkcmd(sprint(".%s tag add hl {end -1c linestart +%dc} {end -1 linestart +%dc +%dc}",
+					win.tkid, hl, hl, len win.srv.nick));
+
+			# at startup, we read a backlog.  these lines will be sent many lines in one read.
+			# during normal operation we typically get one line per read.
+			# this is a simple heuristic to start without all windows highlighted...
 			if(nlines == 1 && win != curwin) {
 				if(tag == "meta")
 					win.setstatus(Meta);
@@ -445,26 +474,26 @@ init(ctxt: ref Draw->Context, args: list of string)
 		tkwinwarn(w, "writing: "+err);
 		warn("writing: "+err);
 
-	(w, l) := <-usersch =>
-		s: string;
-		while(l != nil) {
-			(s, l) = str->splitstrl(l, "\n");
-			if(l != nil)
-				l = l[1:];
-			if(s == nil) {
+	(w, s) := <-usersch =>
+		(nil, ll) := sys->tokenize(s, "\n");
+		for(; ll != nil; ll = tl ll) {
+			l := hd ll;
+			if(l != nil && l[len l-1] == '\n')
+				l = l[:len l-1];
+			if(l == nil) {
 				warn("empty user line");
 				continue;
 			}
-			say(sprint("userline=%q", s));
-			user := s[1:];
-			case s[0] {
+			say(sprint("userline=%q", l));
+			user := l[1:];
+			case l[0] {
 			'+' =>	w.users = user::w.users;
 			'-' =>	users: list of string;
 				for(; w.users != nil; w.users = tl w.users)
 					if(hd w.users != user)
 						users = user::w.users;
 				w.users = users;
-			* =>	warn("bad user line: "+s);
+			* =>	warn(sprint("bad user line: %q", l));
 			}
 		}
 	}
@@ -485,24 +514,6 @@ uncrap(s: string): string
 	return r;
 }
 
-highlight(word, m: string): int
-{
-	if(len m < len word)
-		return -1;
-	word = irc->lowercase(word);
-	m = irc->lowercase(m);
-top:
-	for(i := 0; i < len m-len word; i++) {
-		k := i;
-		j := 0;
-		while(j < len word)
-			if(m[k++] != word[j++])
-				continue top;
-		return i;
-	}
-	return -1;
-}
-
 command(line: string)
 {
 	(cmd, rem) := str->splitstrl(line, " ");
@@ -511,55 +522,59 @@ command(line: string)
 		return;
 	}
 
-	err := "";
+	err: string;
 	case cmd {
 	"close" =>
 		delwindow(curwin);
+
 	"exit" =>
 		killgrp(sys->pctl(0, nil));
 		exit;
+
 	"add" =>
 		rem = str->drop(rem, " \t");
 		say(sprint("adding server path=%q", rem));
-		srv: ref Srv;
-		(srv, err) = Srv.start(rem);
-		if(err == nil)
+		(srv, cerr) := Srv.init(rem);
+		if(cerr == nil)
 			servers = add(servers, srv);
+		err = cerr;
+
 	"del" =>
-		srv := curwin.srv;
 		for(i := 0; i < len windows;)
-			if(windows[i].srv == srv)
+			if(windows[i].srv == curwin.srv)
 				delwindow(windows[i]);
 			else
 				i++;
-		servers = del(servers, srv);
-		kill(srv.eventpid);
+		servers = del(servers, curwin.srv);
+		kill(curwin.srv.eventpid);
+
 	"addwin" =>
 		rem = str->drop(rem, " \t");
-		win: ref Win;
-		srv := curwin.srv;
-		(win, err) = Win.start(srv, rem, nil);
-		if(err != nil)
-			tkwarn("adding window: "+err);
+		(win, cerr) := Win.init(curwin.srv, rem, nil);
 		addwindow(win);
-		say(sprint("have new target, path=%s id=%s", curwin.srv.path, rem));
+		say(sprint("have new target, path=%q id=%q", curwin.srv.path, rem));
+		err = cerr;
+
 	"windows" =>
 		srv := curwin.srv;
 		tksay("open windows:");
 		for(i := 0; i < len srv.open; i++)
-			tksay(sprint("\t%-15s (%s)", srv.open[i].t0, srv.open[i].t1));
+			tksay(sprint("\t%-15s (%q)", srv.open[i].t0, srv.open[i].t1));
 		tksay("dead windows:");
 		for(i = 0; i < len srv.dead; i++)
-			tksay(sprint("\t%-15s (%s)", srv.dead[i].t0, srv.dead[i].t1));
+			tksay(sprint("\t%-15s (%q)", srv.dead[i].t0, srv.dead[i].t1));
 		tksay("unopened windows:");
 		for(i = 0; i < len srv.unopen; i++)
-			tksay(sprint("\t%-15s (%s)", srv.unopen[i].t0, srv.unopen[i].t1));
+			tksay(sprint("\t%-15s (%q)", srv.unopen[i].t0, srv.unopen[i].t1));
+
 	"away" =>
 		for(i := 0; i < len servers; i++)
 			if(fprint(servers[i].ctlfd, "%s", line) < 0)
-				tkwarn(sprint("%s: %r", servers[i].path));
+				tkwarn(sprint("%q: %r", servers[i].path));
+
 	"clearwin" =>
 		tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
+
 	* =>
 		err = curwin.ctlwrite(line);
 	}
@@ -567,28 +582,27 @@ command(line: string)
 		tkwarn(err);
 }
 
-Srv.start(path: string): (ref Srv, string)
+Srv.init(path: string): (ref Srv, string)
 {
-	eventfd := sys->open(path+"/event", Sys->OREAD);
-	if(eventfd == nil)
-		return (nil, sprint("open: %r"));
+	eventb := bufio->open(path+"/event", Sys->OREAD);
+	if(eventb == nil)
+		fail("bufio open: %r");
+
 	ctlfd := sys->open(path+"/ctl", Sys->OWRITE);
 	if(ctlfd == nil)
 		return (nil, sprint("open: %r"));
-	srv := ref Srv(string (lastsrvid++), path, ctlfd, eventfd, nil, nil, 0,
+
+	srv := ref Srv(string (lastsrvid++), path, ctlfd, nil, nil, 0,
 		array[0] of ref (string, string), array[0] of ref (string, string), array[0] of ref (string, string));
 
-	spawn eventreader(pidc := chan of int, eventfd, srv);
+	spawn eventreader(pidc := chan of int, eventb, srv);
 	srv.eventpid = <-pidc;
 	return (srv, nil);
 }
 
-eventreader(pidc: chan of int, fd: ref Sys->FD, srv: ref Srv)
+eventreader(pidc: chan of int, b: ref Iobuf, srv: ref Srv)
 {
 	pidc <-= sys->pctl(0, nil);
-	b := bufio->fopen(fd, Sys->OREAD);
-	if(b == nil)
-		fail("bufio fopen: %r");
 	for(;;) {
 		l := b.gets('\n');
 		if(l == nil) {
@@ -603,45 +617,47 @@ eventreader(pidc: chan of int, fd: ref Sys->FD, srv: ref Srv)
 	}
 }
 
-Win.start(srv: ref Srv, id, name: string): (ref Win, string)
+Win.init(srv: ref Srv, id, name: string): (ref Win, string)
 {
-	p := sprint("%s/%s/", srv.path, id);
+	p := sprint("%s/%s", srv.path, id);
 
-	datafd := sys->open(p+"data", Sys->ORDWR);
+	datafd := sys->open(p+"/data", Sys->ORDWR);
 	if(datafd == nil)
 		return (nil, sprint("open: %r"));
-	if(readhistsize != nil) {
+	if(readhistsize >= big 0) {
 		dir := sys->nulldir;
-		dir.length = big readhistsize;
+		dir.length = readhistsize;
 		if(sys->fwstat(datafd, dir) < 0)
-			warn(sprint("writing history size: %r"));
+			warn(sprint("set history size: %r"));
 	}
 
 	if(name == nil) {
 		err: string;
-		(name, err) = readfile(p+"name");
+		(name, err) = readfile(p+"/name");
 		if(err != nil)
 			return (nil, err);
 	}
-	usersfd := sys->open(p+"users", Sys->OREAD);
+	usersfd := sys->open(p+"/users", Sys->OREAD);
 	if(usersfd == nil)
 		return (nil, sprint("open: %r"));
 
-	win := ref Win(srv, id, sprint("t-%s-%s", srv.id, id), name, -1, nil, datafd, 0, nil, 0, irc->ischannel(name), chan[16] of string, nil);
+	tkid := sprint("t-%s-%s", srv.id, id);
+	win := ref Win(srv, id, tkid, name, -1, nil, datafd, 0, nil, 0, irc->ischannel(name), chan[8] of string, nil);
 	pidc := chan of int;
 	spawn reader(pidc, datafd, win);
 	spawn writer(pidc, datafd, win);
 	spawn usersreader(pidc, usersfd, win);
 	win.pids = <-pidc::<-pidc::<-pidc::win.pids;
-	say("Win.start, done");
+	say("Win.init, done");
 	return (win, nil);
 }
 
 reader(pidc: chan of int, fd: ref Sys->FD, win: ref Win)
 {
 	pidc <-= sys->pctl(0, nil);
+	buf := array[Sys->ATOMICIO] of byte;
 	for(;;) {
-		n := sys->read(fd, buf := array[8*1024] of byte, len buf);
+		n := sys->read(fd, buf, len buf);
 		if(n == 0) {
 			say("reader: eof");
 			datach <-= (win, nil);
@@ -652,7 +668,7 @@ reader(pidc: chan of int, fd: ref Sys->FD, win: ref Win)
 			break;
 		}
 		say("reader: have data");
-		(nil, lines) := sys->tokenize(string buf[:n], "\n");;
+		(nil, lines) := sys->tokenize(string buf[:n], "\n");
 		datach <-= (win, lines);
 	}
 }
@@ -673,8 +689,9 @@ writer(pidc: chan of int, fd: ref Sys->FD, w: ref Win)
 usersreader(pidc: chan of int, fd: ref Sys->FD, w: ref Win)
 {
 	pidc <-= sys->pctl(0, nil);
+	d := array[1024] of byte;
 	for(;;) {
-		n := sys->read(fd, d := array[1024] of byte, len d);
+		n := sys->read(fd, d, len d);
 		if(n == 0)
 			break;
 		if(n < 0) {
@@ -685,19 +702,21 @@ usersreader(pidc: chan of int, fd: ref Sys->FD, w: ref Win)
 	}
 }
 
-winwrite(w: ref Win, l: string): string
+Win.writetext(w: self ref Win, s: string): string
 {
 	alt {
-	w.writec <-= l =>	return nil;
+	w.writec <-= s =>	return nil;
 	* =>			return "too many writes queued, discarding line";
 	}
 }
 
 Win.addline(w: self ref Win, l: string, tag: string)
 {
-	w.nlines++;
-	if(w.nlines >= Maxlines)
+	if(w.nlines >= Windowlinesmax)
 		tkcmd(sprint(".%s delete 1.0 1.end", w.tkid));
+	else
+		w.nlines++;
+
 	tkcmd(sprint(".%s insert end '%s", w.tkid, l));
 	tkcmd(sprint(".%s tag add %s {end -1c -%dc} {end - 1c}", w.tkid, tag, len l));
 }
@@ -733,9 +752,7 @@ Win.ctlwrite(w: self ref Win, s: string): string
 {
 	if(w.ctlfd == nil)
 		w.ctlfd = sys->open(sprint("%s/%s/ctl", w.srv.path, w.id), Sys->OWRITE);
-	if(w.ctlfd == nil)
-		return sprint("%r");
-	else if(fprint(w.ctlfd, "%s", s) < 0)
+	if(w.ctlfd == nil || fprint(w.ctlfd, "%s", s) < 0)
 		return sprint("%r");
 	return nil;
 }
@@ -862,15 +879,7 @@ winindex(a: array of ref (string, string), e: ref (string, string)): int
 
 selection(): string
 {
-	if(curwin == nil)
-		return nil;
 	return tkcmd(sprint(".%s get sel.first sel.last", curwin.tkid));
-}
-
-delselection()
-{
-	if(curwin != nil)
-		tkcmd(sprint(".%s delete sel.first sel.last", curwin.tkid));
 }
 
 tkwinwrite(w: ref Win, s, tag: string)
@@ -893,7 +902,7 @@ tkwarn(s: string)
 
 tksay(s: string)
 {
-	tkwinwrite(curwin, s, "resp");
+	tkwinwrite(curwin, s, "status");
 }
 
 plumbsend(text, path, attrname, attrval: string)
@@ -920,7 +929,7 @@ readfile(p: string): (string, string)
 	fd := sys->open(p, Sys->OREAD);
 	if(fd == nil)
 		return (nil, sprint("open: %r"));
-	n := sys->readn(fd, buf := array[8*1024] of byte, len buf);
+	n := sys->readn(fd, buf := array[Sys->ATOMICIO] of byte, len buf);
 	if(n < 0)
 		return (nil, sprint("read: %r"));
 	return (string buf[:n], nil);
@@ -957,6 +966,22 @@ del[T](a: array of T, e: T): array of T
 			break;
 		}
 	return a;
+}
+
+substr(sub, s: string): int
+{
+	last := len s-len sub;
+	for(i := 0; i <= last; i++)
+		if(str->prefix(sub, s[i:]))
+			return i;
+	return -1;
+}
+
+taketl(s, cl: string): string
+{
+	for(i := len s; i > 0 && str->in(s[i-1], cl); i--)
+		;
+	return s[i:];
 }
 
 kill(pid: int)

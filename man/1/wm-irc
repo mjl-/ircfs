@@ -6,6 +6,9 @@ irc \- graphical interface to the irc file system
 [
 .B -ds
 ] [
+.B -g
+.I width height
+] [
 .B -h
 .I histsize
 ]
@@ -40,6 +43,10 @@ Activity on windows is shown by a single character left to the name of the windo
 .TP
 .B -s
 Do not automatically add windows for all irc directories ircfs knows.  By default, each directory is opened.
+.TP
+.BI -g " width height"
+Set the window size to
+.IR "width x height" .
 .TP
 .BI -h " histsize"
 Do not read more than
