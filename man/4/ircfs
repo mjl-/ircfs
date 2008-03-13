@@ -32,12 +32,6 @@ is always present, providing status messages such as irc connection errors and c
 
 .SS Options
 .TP
-.B -d
-Enable debugging.
-.TP
-.B -D
-Print styx traces.
-.TP
 .BI -a " addr"
 Use
 .I addr
@@ -62,6 +56,13 @@ files of all irc directories to files named
 where
 .I name
 is the channel or user name.
+.TP
+.B -d
+Enable debugging.
+.TP
+.B -D
+Print styx traces.
+
 .SS Hierarchy
 The following files are exported:
 .TP
