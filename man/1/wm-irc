@@ -100,14 +100,7 @@ of the ircfs of the current window, e.g.
 Clear the currently visible window.
 .TP
 .B windows
-Print the list of irc directories exported by ircfs.
-Three lists are printed, a window/directory is only in one list at a time.
-.I Open
-are those alive at ircfs and currently open as a window in wm/irc.
-.I Unopen
-are those alive at ircfs but not opened in wm/irc.
-.I Dead
-are those dead at ircfs but still listed and viewable in wm/irc.
+List all irc directories exported by ircfs and whether they are open in wm/irc.
 .TP
 .BI away " msg"
 Marks user as away with

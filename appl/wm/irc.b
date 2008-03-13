@@ -42,7 +42,6 @@ Srv: adt {
 	# the tuple is (name, id), id is the unique target id from ircfs
 	open:	array of ref (string, string);	# ctl+data files openend, alive at ircfs end
 	unopen:	array of ref (string, string);	# alive at ircfs end, but not opened by us
-	dead:	array of ref (string, string);	# dead at the ircfs end, still opened by us
 
 	init:	fn(path: string): (ref Srv, string);
 };
@@ -410,8 +409,6 @@ init(ctxt: ref Draw->Context, args: list of string)
 			say(sprint("have new target, path=%q id=%q", srv.path, id));
 		"del" =>
 			say(sprint("del target %q", hd tokens));
-			if((j := winindex(srv.open, ref (nil, hd tokens))) >= 0)
-				srv.dead = winadd(srv.dead, srv.open[j]);
 			srv.open = windel(srv.open, ref (nil, hd tokens));
 			srv.unopen = windel(srv.unopen, ref (nil, hd tokens));
 			
@@ -557,13 +554,10 @@ command(line: string)
 
 	"windows" =>
 		srv := curwin.srv;
-		tksay("open windows:");
+		tksay("open:");
 		for(i := 0; i < len srv.open; i++)
 			tksay(sprint("\t%-15s (%q)", srv.open[i].t0, srv.open[i].t1));
-		tksay("dead windows:");
-		for(i = 0; i < len srv.dead; i++)
-			tksay(sprint("\t%-15s (%q)", srv.dead[i].t0, srv.dead[i].t1));
-		tksay("unopened windows:");
+		tksay("not open:");
 		for(i = 0; i < len srv.unopen; i++)
 			tksay(sprint("\t%-15s (%q)", srv.unopen[i].t0, srv.unopen[i].t1));
 
@@ -593,7 +587,7 @@ Srv.init(path: string): (ref Srv, string)
 		return (nil, sprint("open: %r"));
 
 	srv := ref Srv(string (lastsrvid++), path, ctlfd, nil, nil, 0,
-		array[0] of ref (string, string), array[0] of ref (string, string), array[0] of ref (string, string));
+		array[0] of ref (string, string), array[0] of ref (string, string));
 
 	spawn eventreader(pidc := chan of int, eventb, srv);
 	srv.eventpid = <-pidc;
@@ -834,7 +828,6 @@ delwindow(w: ref Win)
 	if(winindex(w.srv.open, ref (w.name, w.id)) >= 0)
 		w.srv.unopen = winadd(w.srv.unopen, ref (w.name, w.id));
 	w.srv.open = windel(w.srv.open, ref (w.name, w.id));
-	w.srv.dead = windel(w.srv.dead, ref (w.name, w.id));
 	windows = del(windows, w);
 	for(i := w.listindex; i < len windows; i++)
 		windows[i].listindex = i;
