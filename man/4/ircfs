@@ -48,7 +48,7 @@ Use
 .I nick
 as nick when connecting.
 .TP
-.BI -l " logpath
+.BI -l " logpath"
 Log contents of the
 .I data
 files of all irc directories to files named
@@ -72,11 +72,11 @@ reconnect, connect
 .IR "address nick [fromhost]" ,
 disconnect,
 quit
-.IR [message] ,
+.IR [msg] ,
 join
 .IR "channel [key]" ,
 away
-.IR [message] ,
+.IR [msg] ,
 back,
 nick
 .IR nick ,
@@ -146,13 +146,13 @@ modulo some commands that do not work on the status directory.
 Additional commands:
 names, n,
 me
-.IR message ,
+.IR msg,
 notice
-.IR message ,
+.IR msg,
 mode
 .IR [mode] ,
 part
-.IR [message] ,
+.IR [msg] ,
 topic
 .IR [topic] .
 The following commands only work on channels and require one or more user names as parameters:
@@ -185,4 +185,4 @@ To run ircfs and export its files:
 .SH BUGS
 Ircfs does not provide information to readers whether data has been read.
 .br
-Day changes messages are treated as "meta" text.  They should be of a lower importance.
+Day change messages are treated as ``meta'' text.  They should be of a lower importance.

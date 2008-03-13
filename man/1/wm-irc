@@ -161,7 +161,7 @@ To start and mount a new ircfs and use it from wm/irc:
 	# now type this in the input entry at the bottom to connect as "inferno":
 	/connect net!irc.freenode.net!6667 inferno
 
-	# and to join a channel "inferno"
+	# and to join a channel #inferno
 	/join #inferno
 .EE
 .SH SOURCE
