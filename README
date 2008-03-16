@@ -152,6 +152,7 @@ compile and install.
 testing:
 
 todo:
+- wm/irc: allow searching backwards and cycling to earlier hits
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
 - ircfs: on disconnect due to connection timeout ircfs hangs.  perhaps in combination with wm/irc disappearing
 - ircfs: fix ircfs-bug.txt

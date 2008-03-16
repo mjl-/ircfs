@@ -36,7 +36,7 @@ Srv: adt {
 	id:	string;		# lastsrvid
 	path:	string;	
 	ctlfd:	ref Sys->FD;
-	nick, lnick:	string;	# our name and lowercased
+	nick, lnick:	string;	# our name and lowercase
 	eventpid:	int;
 	win0:	cyclic ref Win.Irc;
 	wins:	cyclic list of ref Win.Irc;		# includes win0
@@ -75,7 +75,6 @@ Win: adt {
 	init:	fn(srv: ref Srv, id, name: string): (ref Win.Irc, string);
 	writetext:	fn(w: self ref Win, s: string): string;
 	addline:	fn(w: self ref Win, l: string, tag: string);
-	show:	fn(w: self ref Win);
 	close:	fn(w: self ref Win);
 	ctlwrite:	fn(w: self ref Win, s: string): string;
 	setstate:	fn(w: self ref Win, state, draw: int);
@@ -260,8 +259,8 @@ init(ctxt: ref Draw->Context, args: list of string)
 			tkclient->wmctl(t, menu);
 		}
 
-	bcmd := <-tkcmdchan =>
-		dotk(bcmd);
+	cmd := <-tkcmdchan =>
+		dotk(cmd);
 
 	(ircwin, lines) := <-datach =>
 		dodata(ircwin, lines);
@@ -327,35 +326,29 @@ dotk(cmd: string)
 			curwin.plumbsend(s, "name", curwin.name);
 
 	"nextwin" =>
-		windows[(curwin.listindex+1)%len windows].show();
+		showwindow(windows[(curwin.listindex+1)%len windows]);
 
 	"prevwin" =>
-		windows[(curwin.listindex-1+len windows)%len windows].show();
+		showwindow(windows[(curwin.listindex-1+len windows)%len windows]);
 
 	"lastwin" =>
-		lastwin.show();
+		showwindow(lastwin);
 
 	"prevactivewin" =>
 		off := curwin.listindex;
 		which := array[] of {Highlight, Data, Meta};
-	done:
 		for(w := 0; w < len which; w++)
 			for(i := len windows; i >= 0; i--)
-				if(windows[(i+off)%len windows].state == which[w]) {
-					windows[(i+off)%len windows].show();
-					break done;
-				}
+				if(windows[(i+off)%len windows].state == which[w])
+					return showwindow(windows[(i+off)%len windows]);
 
 	"nextactivewin" =>
 		off := curwin.listindex;
 		which := array[] of {Highlight, Data, Meta};
-	done:
 		for(w := 0; w < len which; w++)
 			for(i := 0; i < len windows; i++)
-				if(windows[(i+off)%len windows].state == which[w]) {
-					windows[(i+off)%len windows].show();
-					break done;
-				}
+				if(windows[(i+off)%len windows].state == which[w])
+					return showwindow(windows[(i+off)%len windows]);
 
 	"clearwin" =>
 		tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
@@ -410,7 +403,7 @@ dotk(cmd: string)
 	"winsel" =>
 		say("winsel");
 		index := int tkcmd(".targs curselection");
-		windows[index].show();
+		showwindow(windows[index]);
 
 	* =>
 		tkstatuswarn(sprint("bad command: %q\n", cmd));
@@ -497,8 +490,8 @@ doevent(srv: ref Srv, tokens: list of string)
 		srv.delunopen(id);
 
 	"nick" =>
-		say("new nick: "+hd tokens);
 		srv.nick = hd tokens;
+		say(sprint("new nick: %q", srv.nick));
 		srv.lnick = irc->lowercase(srv.nick);
 
 	"disconnected" =>
@@ -562,7 +555,7 @@ command(line: string)
 	case cmd {
 	"add" =>
 		rem = str->drop(rem, " \t");
-		say(sprint("adding server path=%q", rem));
+		say(sprint("adding server %q", rem));
 		(srv, err) := Srv.init(rem);
 		if(err != nil)
 			tkwarn(err);
@@ -619,7 +612,7 @@ command(line: string)
 			(win, err) = Win.init(ircwin.srv, rem, nil);
 		if(err == nil) {
 			addwindow(win);
-			win.show();
+			showwindow(win);
 			say(sprint("have new target, path=%q id=%q", ircwin.srv.path, rem));
 		}
 
@@ -789,10 +782,9 @@ Win.writetext(w: self ref Win, s: string): string
 	pick ircwin := w {
 	Irc =>
 		alt {
-		ircwin.writec <-= s =>	;
+		ircwin.writec <-= s =>	return nil;
 		* =>			return "too many writes queued, discarding line";
 		}
-		return nil;
 	Status =>
 		return "bug: no writes to status window";
 	}
@@ -807,22 +799,6 @@ Win.addline(w: self ref Win, l: string, tag: string)
 
 	tkcmd(sprint(".%s insert end '%s", w.tkid, l));
 	tkcmd(sprint(".%s tag add %s {end -1c -%dc} {end - 1c}", w.tkid, tag, len l));
-}
-
-Win.show(w: self ref Win)
-{
-	say("show");
-	tkcmd(sprint("pack forget .m.%s", curwin.tkid));
-
-	tkcmd(sprint("bind .l <Control-\\-> {.%s yview scroll -0.75 page}", w.tkid));
-	tkcmd(sprint("bind .l <Control-=> {.%s yview scroll 0.75 page}", w.tkid));
-	tkcmd(sprint("pack .m.%s -in .m.text -fill both -expand 1", w.tkid));
-	w.scroll();
-
-	w.setstate(None, 1);
-	tkcmd(sprint(".targs selection clear 0 end; .targs selection set %d; .targs see %d; update", w.listindex, w.listindex));
-	lastwin = curwin;
-	curwin = w;
 }
 
 Win.close(w: self ref Win)
@@ -919,6 +895,22 @@ Win.plumbsend(w: self ref Win, text, key, val: string)
 	msg.send();
 }
 
+showwindow(w: ref Win)
+{
+	say("show");
+	tkcmd(sprint("pack forget .m.%s", curwin.tkid));
+
+	tkcmd(sprint("bind .l <Control-\\-> {.%s yview scroll -0.75 page}", w.tkid));
+	tkcmd(sprint("bind .l <Control-=> {.%s yview scroll 0.75 page}", w.tkid));
+	tkcmd(sprint("pack .m.%s -in .m.text -fill both -expand 1", w.tkid));
+	w.scroll();
+
+	w.setstate(None, 1);
+	tkcmd(sprint(".targs selection clear 0 end; .targs selection set %d; .targs see %d; update", w.listindex, w.listindex));
+	lastwin = curwin;
+	curwin = w;
+}
+
 
 fixwindows()
 {
@@ -951,7 +943,7 @@ fixwindows()
 	if(useindex < 0)
 		useindex = 0;
 	tkcmd(sprint(".targs selection set %d; .targs see %d; update", useindex, useindex));
-	windows[useindex].show();
+	showwindow(windows[useindex]);
 }
 
 addwindow(w: ref Win.Irc)
