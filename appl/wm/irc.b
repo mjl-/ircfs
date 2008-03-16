@@ -266,12 +266,12 @@ init(ctxt: ref Draw->Context, args: list of string)
 
 dotk(cmd: string)
 {
+	if(curwin == nil)
+		return;
 	(word, nil) := str->splitstrl(cmd, " ");
 	say(sprint("tk ui cmd: %q", word));
 	case word {
 	"find" or "findnext" =>
-		if(curwin == nil)
-			return;
 		start := "1.0";
 		if(word == "findnext") {
 			nstart := tkcmd(sprint(".%s tag nextrange search 1.0", curwin.tkid));
@@ -290,15 +290,11 @@ dotk(cmd: string)
 		tkcmd("update");
 
 	"snarf" =>
-		if(curwin == nil)
-			return;
 		s := selection();
 		if(s != nil)
 			writefile("/dev/snarf", s);
 
 	"paste" =>
-		if(curwin == nil)
-			return;
 		(s, nil) := readfile("/dev/snarf");
 		if(str->drop(s, "^\n") == nil) {
 			tkcmd(".l insert insert '"+s);
@@ -309,28 +305,22 @@ dotk(cmd: string)
 			tkwarn("writing: "+err);
 
 	"plumb" =>
-		if(curwin == nil)
-			return;
 		s := selection();
 		if(s != nil)
 			plumbsend(s, sprint("%s/%s/", curwin.srv.path, curwin.id), "name", curwin.name);
 
 	"nextwin" =>
-		if(curwin != nil)
-			windows[(curwin.listindex+1)%len windows].show();
+		windows[(curwin.listindex+1)%len windows].show();
 
 	"prevwin" =>
-		if(curwin != nil)
-			windows[(curwin.listindex-1+len windows)%len windows].show();
+		windows[(curwin.listindex-1+len windows)%len windows].show();
 
 	"lastwin" =>
 		if(lastwin != nil)
 			lastwin.show();
 
 	"prevactivewin" =>
-		off := 0;
-		if(curwin != nil)
-			off = curwin.listindex;
+		off := curwin.listindex;
 		which := array[] of {Highlight, Data, Meta};
 	done:
 		for(w := 0; w < len which; w++)
@@ -341,9 +331,7 @@ dotk(cmd: string)
 				}
 
 	"nextactivewin" =>
-		off := 0;
-		if(curwin != nil)
-			off = curwin.listindex;
+		off := curwin.listindex;
 		which := array[] of {Highlight, Data, Meta};
 	done:
 		for(w := 0; w < len which; w++)
@@ -374,8 +362,6 @@ dotk(cmd: string)
 			tkwarn("writing: "+err);
 
 	"complete" =>
-		if(curwin == nil)
-			return;
 		l := tkcmd(".l get");
 
 		index := int tkcmd(".l index insert");
@@ -583,7 +569,7 @@ command(line: string)
 		servers = ns;
 		kill(srv.eventpid);
 		curwin = nil;
-		if(lastwin.srv == srv)
+		if(lastwin != nil && lastwin.srv == srv)
 			lastwin = nil;
 		fixwindows();
 
