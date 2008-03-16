@@ -388,7 +388,7 @@ dotk(cmd: string)
 
 			for(ul := win.users; ul != nil; ul = tl ul) {
 				if(!str->prefix(w, str->tolower(hd ul)))
-					return;
+					continue;
 
 				start := index-len w;
 				suf := " ";
