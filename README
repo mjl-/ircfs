@@ -152,7 +152,6 @@ compile and install.
 testing:
 
 todo:
-- both: implement a new /n/data type of line that is like meta but doesn't change channel statuses in wm/irc.  for "day changed" messages.
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
 - ircfs: on disconnect due to connection timeout ircfs hangs.  perhaps in combination with wm/irc disappearing
 - ircfs: fix ircfs-bug.txt
@@ -162,5 +161,4 @@ todo:
 - find ways to crash ircfs and wm/irc, and fix it
 - ircfs: unify reading/writing irc messages in /appl/lib/irc.b?  messages are almost bidirectional?
 - ircfs: perhaps add the more obscure commands: info, ison, links, list, lusers, motd, note, ping, servlist, squery?, stats, time, trace, version, userhost, whowas
-- all: clean up, cluster code that deals with same things, group the tk commands in wm/irc
 - wm/irc: open servers in background?  could introduce races
