@@ -148,9 +148,10 @@ maketext(tkid: string)
 	cmds := array[] of {
 		sprint("frame .m.%s", id),
 		sprint("text .%s -wrap word -yscrollcommand {.%s-scroll set}", id, id),
-		sprint(".%s tag configure meta -foreground blue -lmargin2 6w", id),
+		# without the font-part, the lmargin seems to be ignored...
+		sprint(".%s tag configure meta -foreground blue -font /fonts/pelm/unicode.8.font -lmargin2 6w", id),
 		sprint(".%s tag configure warning -foreground red", id),
-		sprint(".%s tag configure data -foreground black -lmargin2 16w", id),
+		sprint(".%s tag configure data -foreground black -font /fonts/pelm/unicode.8.font -lmargin2 16w", id),
 		sprint(".%s tag configure hl -background yellow", id),
 		sprint(".%s tag configure search -background orange", id),
 		sprint(".%s tag configure status -foreground green", id),
