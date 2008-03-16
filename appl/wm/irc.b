@@ -127,7 +127,7 @@ tkcmds := array[] of {
 	"bind .l <Control-f> {focus .find}",
 	"bind .l {<Key-\t>} {send cmd complete}",
 
-	"listbox .targs -font /fonts/pelm/unicode.8.font -width 14w",
+	"listbox .targs -width 14w",
 	"pack .targs -side right -in .side -fill y -expand 1",
 	"bind .targs <ButtonRelease-1> {send cmd winsel; focus .l}",
 	"bind .targs <Control-t> {focus .l}",
@@ -148,9 +148,9 @@ maketext(tkid: string)
 	cmds := array[] of {
 		sprint("frame .m.%s", id),
 		sprint("text .%s -wrap word -yscrollcommand {.%s-scroll set}", id, id),
-		sprint(".%s tag configure meta -foreground blue -font /fonts/pelm/unicode.8.font -lmargin2 6w", id),
+		sprint(".%s tag configure meta -foreground blue -lmargin2 6w", id),
 		sprint(".%s tag configure warning -foreground red", id),
-		sprint(".%s tag configure data -foreground black -font /fonts/pelm/unicode.8.font -lmargin2 16w", id),
+		sprint(".%s tag configure data -foreground black -lmargin2 16w", id),
 		sprint(".%s tag configure hl -background yellow", id),
 		sprint(".%s tag configure search -background orange", id),
 		sprint(".%s tag configure status -foreground green", id),
