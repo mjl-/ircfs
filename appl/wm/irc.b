@@ -50,7 +50,7 @@ Srv: adt {
 
 None, Meta, Data, Highlight: con iota;	# Win.state
 
-# window in a Srv
+# irc directory in a Srv
 Win: adt {
 	srv:	cyclic ref Srv;
 	id:	string;
@@ -221,8 +221,10 @@ init(ctxt: ref Draw->Context, args: list of string)
 
 	for(; args != nil; args = tl args) {
 		(srv, err) := Srv.init(hd args);
-		if(err != nil)
-			fail(sprint("init srv for %q: %s", hd args, err));	# xxx don't fail?
+		if(err != nil) {
+			warn(sprint("init srv for %q: %s", hd args, err));
+			continue;
+		}
 		servers = srv::servers;
 		say("have new srv");
 	}
@@ -266,10 +268,12 @@ init(ctxt: ref Draw->Context, args: list of string)
 
 dotk(cmd: string)
 {
-	if(curwin == nil)
-		return;
 	(word, nil) := str->splitstrl(cmd, " ");
 	say(sprint("tk ui cmd: %q", word));
+
+	if(curwin == nil && word != "say")
+		return;
+
 	case word {
 	"find" or "findnext" =>
 		start := "1.0";
@@ -354,6 +358,8 @@ dotk(cmd: string)
 			return;
 		}
 
+		if(curwin == nil)
+			return;
 		say("say line");
 		if(line[0] == '/')
 			line = line[1:];
@@ -614,7 +620,7 @@ Srv.init(path: string): (ref Srv, string)
 {
 	eventb := bufio->open(path+"/event", Sys->OREAD);
 	if(eventb == nil)
-		fail(sprint("bufio open: %r"));
+		return (nil, sprint("bufio open: %r"));
 
 	ctlfd := sys->open(path+"/ctl", Sys->OWRITE);
 	if(ctlfd == nil)
