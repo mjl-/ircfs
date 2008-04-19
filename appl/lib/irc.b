@@ -346,6 +346,7 @@ Rimsg.unpack(s: string): (ref Rimsg, string)
 			return (ref Rimsg.Errortext(f, cmd, where, params), nil);
 		return (ref Rimsg.Replytext(f, cmd, where, params), nil);
 	}
+	return (nil, "unhandled irc message?");
 }
 
 From.text(f: self ref From): string
