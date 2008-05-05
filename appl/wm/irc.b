@@ -161,6 +161,7 @@ maketext(tkid: string)
 		sprint(".%s tag configure hl -background yellow", id),
 		sprint(".%s tag configure search -background orange", id),
 		sprint(".%s tag configure status -foreground green", id),
+		sprint(".%s tag configure bold -underline 1", id),
 		sprint("bind .%s <Control-f> {focus .find}", id),
 		sprint("bind .%s <Control-t> {focus .l}", id),
 		sprint("scrollbar .%s-scroll -command {.%s yview}", id, id),
@@ -431,9 +432,16 @@ dodata(win: ref Win.Irc, lines: list of string)
 		nostatechange := m[:2] == "! ";
 		if(m[:2] == "# " || m[:2] == "! ")
 			tag = "meta";
-		m = uncrap(m[2:])+"\n";
 
+		(mm, bolds) := uncrap(m[2:]);
+		m = mm+"\n";
 		win.addline(m, tag);
+
+		for(; bolds != nil; bolds = tl bolds) {
+			(start, end) := *hd bolds;
+			tkcmd(sprint(".%s tag add bold {end -1c linestart +%dc} {end -1 linestart +%dc}", win.tkid, start, end));
+		}
+
 		hl := substr(win.srv.lnick, irc->lowercase(m));
 		if(hl >= 0)
 			tkcmd(sprint(".%s tag add hl {end -1c linestart +%dc} {end -1 linestart +%dc +%dc}",
@@ -533,19 +541,25 @@ douser(w: ref Win.Irc, s: string)
 	}
 }
 
-uncrap(s: string): string
+uncrap(s: string): (string, list of ref (int, int))
 {
 	r := "";
+	bolds: list of ref (int, int);
+	bold := 0;
 	for(i := 0; i < len s; i++)
 		case s[i] {
-		2 =>	# introduces bold
-			;
+		2 =>	# starts/ends bold
+			if(bold) {
+				bolds = ref(bold, len r)::bolds;
+				bold = 0;
+			} else
+				bold = len r;
 		3 =>	# introduces color (and 2-digit code)
 			if(i+2 < len s && str->in(s[i+1], "0-9") && str->in(s[i+2], "0-9"))
 				i += 2;
 		* =>	r[len r] = s[i];
 		}
-	return r;
+	return (r, rev(bolds));
 }
 
 command(line: string)
