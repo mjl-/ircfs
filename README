@@ -1,6 +1,75 @@
+# summary
+
 this package contains an irc file system (ircfs), an irc library
 and a tk front-end for the filesystem (wm/irc).  all written in
 limbo for use under inferno.
+
+
+# download
+
+the hg repository for this code is currently at
+
+	http://www.ueber.net/who/mjl/hg/ircfs/
+
+get a copy by running:
+
+	hg clone static-http://www.ueber.net/who/mjl/hg/ircfs/
+
+
+# install
+
+to install, first make a file "mkconfig" similar to your inferno's
+installation mkconfig (symlink/bind it).  now type "mk install" to
+compile and install.  NOTE: just "mk" does not work, since the
+module files (*.m) will be missing and compilation of source files
+(*.b) will fail.
+
+
+# example
+
+to run ircfs on a remote machine and export its files, you can do the following.
+
+on the remote machines, to start ircfs:
+
+	once: mkdir /mnt/irc /mnt/irc/freenode $home/irclog $home/irclog/freenode
+	emu -c0
+	ndb/cs
+	mount {ircfs -dD -l $home/irclog/freenode -a net!irc.freenode.net!6667 -n ircfsuser freenode} /mnt/irc/freenode
+	styxlisten -A net!*!6872 {export /mnt/irc}
+
+and to mount the ircfs tree and start the gui wm/irc:
+
+	once: mkdir /mnt/irc
+	ndb/cs
+	mount net!remotemachine!6872 /mnt/irc
+	wm/irc -d /mnt/irc/freenode &
+
+
+# example, with authentication
+
+you should set up authentication, this should be outside the scope of this document...
+to set this up, first run a signer:
+
+	ndb/cs
+	createsignerkey
+	svc/auth
+	auth/changelogin yourusername	# enter password
+
+make the keyring/ircfs file:
+
+	getauthinfo $home/keyring/ircfs	# enter signer address and password
+
+now either copy the ircfs to the styx client and server,
+or do the getauthinfo again.  finally, replace the -A in
+the mount and styxlisten calls earlier by "-k $home/keyring/ircfs".
+
+
+# documentation
+
+see the manual pages for details, ircfs(4) and wm-irc(1).
+
+
+# ircfs
 
 ircfs maintains a connection to an irc server and presents each
 communication line (either a channel it has joined, or a private
@@ -60,6 +129,8 @@ returned, the bytes of history to read can be set with a wstat on
 an open fid to the file.
 
 
+# wm/irc
+
 wm/irc is a program that reads one or more "irc directories", i.e.
 directories served by one or more ircfs-en.  each such ircfs is
 called a "server", each channel or query with a user is called a
@@ -103,55 +174,17 @@ wm/irc has quite some features to make use comfortable:
   on search box
 
 
-to run ircfs on a remote machine and export its files, you can do the following:
-	on the remote machines:
-	once: mkdir /mnt/irc /mnt/irc/freenode $home/irclog $home/irclog/freenode
-	emu -c0
-	ndb/cs
-	mount {ircfs -dD -l $home/irclog/freenode -a net!irc.freenode.net!6667 -n ircfsuser freenode} /mnt/irc/freenode
-	styxlisten -A net!*!6872 {export /mnt/irc}
+# licence & author
 
-	and to mount it and start talking:
-	once: mkdir /mnt/irc
-	ndb/cs
-	mount net!remotemachine!6872 /mnt/irc
-	wm/irc -d /mnt/irc/freenode &
-
-	you should set up authentication, this should be outside the scope of this document...
-	to set this up, first run a signer:
-	ndb/cs
-	createsignerkey
-	svc/auth
-	auth/changelogin yourusername	# enter password
-
-	make the keyring/ircfs file:
-	getauthinfo $home/keyring/ircfs	# enter signer address and password
-
-        now either copy the ircfs to the styx client and server,
-        or do the getauthinfo again.  finally, replace the -A in
-        the mount and styxlisten calls earlier by "-k $home/keyring/ircfs".
-
-
-misc stuff:
 this code is in the public domain.  the code is written by mechiel
 lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
 
-the hg repository for this code is currently at
 
-	http://www.ueber.net/who/mjl/hg/ircfs/
-
-get a copy with:
-
-	hg clone static-http://www.ueber.net/who/mjl/hg/ircfs/
-
-to use it, first make a file "mkconfig" similar to your inferno's
-installation mkconfig (symlink/bind it).  now type "mk install" to
-compile and install.
+# testing
 
 
-testing:
+# todo
 
-todo:
 - wm/irc: allow searching backwards and cycling to earlier hits
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
 - ircfs: on disconnect due to connection timeout ircfs hangs.  perhaps in combination with wm/irc disappearing
