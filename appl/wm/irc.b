@@ -291,7 +291,7 @@ dotk(cmd: string)
 				(start, nil) = str->splitstrl(nstart, " ");
 		}
 		tkcmd(sprint(".%s tag remove search 1.0 end", curwin.tkid));
-		pattern := tkcmd(".find get");
+		pattern := tkget(".find get");
 		if(pattern != nil) {
 			index := tkcmd(sprint(".%s search [.find get] {%s +%dc}", curwin.tkid, start, len pattern));
 			say("find, index: "+index);
@@ -355,7 +355,7 @@ dotk(cmd: string)
 		tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
 
 	"say" =>
-		line := tkcmd(".l get");
+		line := tkget(".l get");
 		if(line == nil)
 			return;
 		tkcmd(".l delete 0 end; update");
@@ -379,7 +379,7 @@ dotk(cmd: string)
 	"complete" =>
 		pick win := curwin {
 		Irc =>
-			l := tkcmd(".l get");
+			l := tkget(".l get");
 
 			index := int tkcmd(".l index insert");
 			if(index < 0 || index > len l)
@@ -985,7 +985,7 @@ delwindow(w: ref Win.Irc)
 
 selection(): string
 {
-	return tkcmd(sprint(".%s get sel.first sel.last", curwin.tkid));
+	return tkget(sprint(".%s get sel.first sel.last", curwin.tkid));
 }
 
 tkwinwrite(w: ref Win, s, tag: string)
@@ -1037,6 +1037,12 @@ tkcmd(s: string): string
 	if(r != nil && r[0] == '!')
 		warn(sprint("tkcmd: %q: %s", s, r));
 	return r;
+}
+
+# like tkcmd, but does not warn if result starts with ! (can be text)
+tkget(s: string): string
+{
+	return tk->cmd(t, s);
 }
 
 substr(sub, s: string): int
