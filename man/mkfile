@@ -1,0 +1,7 @@
+<../mkconfig
+
+MAN=\
+	1/wm-irc\
+	4/ircfs\
+
+<mkman

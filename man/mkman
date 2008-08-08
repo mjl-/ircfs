@@ -1,0 +1,14 @@
+MANDIR=$ROOT/man
+
+all:QV:
+	
+clean:QV:
+	
+install:V:	${MAN:%=$MANDIR/%}
+nuke:V:	${MAN:%=$MANDIR/%-nukeman}
+
+$MANDIR/%-nukeman:V:
+	rm -f $MANDIR/$stem
+
+$MANDIR/%: %
+	cp $stem $MANDIR/$stem

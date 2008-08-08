@@ -1,13 +1,6 @@
 <../mkconfig
 
-MODDIR=$ROOT/module
+MOD=\
+	irc.m\
 
-$MODDIR/%.m:	%.m
-        rm -f $MODDIR/$stem.m && cp $stem.m $MODDIR/$stem.m
-
-all:QV:
-	
-clean:QV:
-	
-install:V:	$MODDIR/irc.m
-
+<mkmod
