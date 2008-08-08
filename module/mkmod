@@ -1,14 +1,16 @@
 MODDIR=$ROOT/module
 
+$MODDIR/%.m:    %.m
+        rm -f $MODDIR/$stem.m && cp $stem.m $MODDIR/$stem.m
+
+
+MODFILES=${MODS:%=$MODDIR/%}
+
 all:QV:
 	
 clean:QV:
 	
-install:V:	${MOD:%=$MODDIR/%}
-nuke:V:	${MOD:%=$MODDIR/%-nukemodule}
+install:V:      $MODFILES
 
-$MODDIR/%.m:	%.m
-        rm -f $MODDIR/$stem.m && cp $stem.m $MODDIR/$stem.m
-
-$MODDIR/%.m-nukemodule:V:
-        rm -f $MODDIR/$stem.m
+nuke:V:
+        rm -f $MODFILES

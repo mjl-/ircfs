@@ -1,6 +1,6 @@
 <../mkconfig
 
-MOD=\
+MODS=\
 	irc.m\
 
 <mkmod
