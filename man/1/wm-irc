@@ -96,7 +96,7 @@ Open the irc directory
 of the ircfs of the current window, e.g.
 .IR /mnt/irc/ircnet/id/ .
 .TP
-.B clearwin
+.B clear
 Clear the currently visible window.
 .TP
 .B windows

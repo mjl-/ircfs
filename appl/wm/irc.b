@@ -11,6 +11,7 @@ include "plumbmsg.m";
 include "tk.m";
 include "tkclient.m";
 include "irc.m";
+include "keyboard.m";
 
 sys: Sys;
 draw: Draw;
@@ -131,7 +132,7 @@ tkcmds := array[] of {
 	"bind .l <Control-k> {send cmd lastwin}",
 	"bind .l <Control-z> {send cmd prevactivewin}",
 	"bind .l <Control-x> {send cmd nextactivewin}",
-	#"bind .l <Control-l> {send cmd clearwin}",
+	#"bind .l <Control-l> {send cmd clear}",
 	"bind .l <Control-f> {focus .find}",
 	"bind .l {<Key-\t>} {send cmd complete}",
 
@@ -351,7 +352,7 @@ dotk(cmd: string)
 				if(windows[(i+off)%len windows].state == which[w])
 					return showwindow(windows[(i+off)%len windows]);
 
-	"clearwin" =>
+	"clear" =>
 		tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
 
 	"say" =>
@@ -581,7 +582,7 @@ command(line: string)
 		killgrp(sys->pctl(0, nil));
 		exit;
 
-	"clearwin" =>
+	"clear" =>
 		tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
 		return;
 	}
@@ -916,6 +917,8 @@ showwindow(w: ref Win)
 
 	tkcmd(sprint("bind .l <Control-\\-> {.%s yview scroll -0.75 page}", w.tkid));
 	tkcmd(sprint("bind .l <Control-=> {.%s yview scroll 0.75 page}", w.tkid));
+	tkcmd(sprint("bind .l <Key-%c> {.%s yview scroll -0.75 page}", Keyboard->Pgup, w.tkid));
+	tkcmd(sprint("bind .l <Key-%c> {.%s yview scroll 0.75 page}", Keyboard->Pgdown, w.tkid));
 	tkcmd(sprint("pack .m.%s -in .m.text -fill both -expand 1", w.tkid));
 	w.scroll();
 

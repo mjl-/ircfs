@@ -51,7 +51,7 @@ you should set up authentication, this should be outside the scope of this docum
 to set this up, first run a signer:
 
 	ndb/cs
-	createsignerkey
+	auth/createsignerkey
 	svc/auth
 	auth/changelogin yourusername	# enter password
 

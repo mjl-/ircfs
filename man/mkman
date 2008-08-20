@@ -9,6 +9,6 @@ all:QV:
 	
 clean:QV:
 	
-install:V:	${MAN:%=$MANDIR/%}
+install:V:	$MANFILES
 nuke:V:
 	rm -f $MANFILES
