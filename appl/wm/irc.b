@@ -535,7 +535,7 @@ douser(w: ref Win.Irc, s: string)
 		'-' =>	users: list of string;
 			for(; w.users != nil; w.users = tl w.users)
 				if(hd w.users != user)
-					users = user::w.users;
+					users = hd w.users::users;
 			w.users = users;
 		* =>	tkstatuswarn(sprint("bad user line: %q", l));
 		}
