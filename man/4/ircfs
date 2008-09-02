@@ -4,7 +4,7 @@ ircfs \- irc file server
 .SH SYNOPSIS
 .B ircfs
 [
-.B -Dd
+.B -Ddt
 ] [
 .B -a
 .I addr
@@ -57,6 +57,9 @@ where
 .I name
 is the channel or user name.
 .TP
+.B -t
+Use long timestamps, in both logging and the data file.  Also removes text type (see section about the data file) from messages before logging.
+.TP
 .B -d
 Enable debugging.
 .TP
@@ -91,8 +94,9 @@ time,
 version
 and
 ping
-(these last three are ctcp messages).  Commands are issued directly to the irc server, possible responses can be read from the status directory data file
+(these last three are ctcp messages).  Reconnect performs a reconnect with address and nick from the previous connection, or the address and nick specified on the command line.  Commands are issued directly to the irc server.  Responses from the irc server can be read from the status directory data file
 .IR /0/data .
+The responses are free-form and cannot be matched to specific commands (the irc protocol does not contain the necessary information).
 .TP
 .B /event
 Reads from this read-only file will block until an event occurs, one event per line.  The first word indicates the type of event.
@@ -159,7 +163,7 @@ The following commands only work on channels and require one or more user names 
 kick, op, deop, ban, unban, voice, devoice .
 .TP
 .B /n/data
-Data written to this file is sent to the channel or user query.  A write can contain multiple lines.  Reads on this file block until activity occurs on the channel or query.  After opening, reads will first return a backlog of text.  Each line will start with two characters, ``+ '' for normal text, ``# '' for meta text, and ``! '' for less important meta text.  Meta text is information about the channel, such as users joining or leaving a channel, new topics, mode changes, etc.  These characters are nearly always followed by a time stamp of the form ``hh:mm '', followed by the text itself.  Date changes are written with the ``! '' meta text line.
+Data written to this file is sent to the channel or user query.  A write can contain multiple lines.  Reads on this file block until activity occurs on the channel or query.  After opening, reads will first return a backlog of text.  Each line will start with two characters, ``+ '' for normal text, ``# '' for meta text, and ``! '' for non-irc protocol meta text.  Meta text is information about the channel, such as users joining or leaving a channel, new topics, mode changes, etc.  These characters are nearly always followed by a time stamp of the form ``hh:mm '', followed by the text itself.  Date changes are written with the ``! '' meta text line.
 .TP
 .B /n/name
 Reads return the name of the channel or the user.  For the status directory ``0'' the string ``(netname)'' is returned,
@@ -172,7 +176,6 @@ Only useful if the directory represents an irc channel.  Reads return lines of t
 .SH EXAMPLE
 To run ircfs and export its files:
 .EX
-	ndb/cs
 	# note: make sure the paths exist
 	mount {ircfs -l $home/irclog/freenode -a net!irc.freenode.net!6667 \
 		-n ircfsuser freenode} /mnt/irc/freenode

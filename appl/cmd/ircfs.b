@@ -39,7 +39,7 @@ Histdefault:	con 32*1024;
 
 Disconnected, Connecting, Connected: con iota;
 
-Dflag, dflag: int;
+Dflag, dflag, tflag: int;
 logpath: string;
 netname: string;
 lastnick, lastaddr, lastfromhost: string;
@@ -134,7 +134,7 @@ init(nil: ref Draw->Context, args: list of string)
 	sys->pctl(Sys->NEWPGRP, nil);
 
 	arg->init(args);
-	arg->setusage(arg->progname()+" [-Dd] [-a addr] [-f fromhost] [-n nick] [-l logpath] netname");
+	arg->setusage(arg->progname()+" [-Ddt] [-a addr] [-f fromhost] [-n nick] [-l logpath] netname");
 	while((c := arg->opt()) != 0)
 		case c {
 		'a' =>	lastaddr = arg->earg();
@@ -143,6 +143,7 @@ init(nil: ref Draw->Context, args: list of string)
 		'l' =>	logpath = arg->earg();
 			if(logpath != nil && logpath[len logpath-1] != '/')
 				logpath += "/";
+		't' =>	tflag++;
 		'D' =>	Dflag++;
 			styxservers->traceset(Dflag);
 		'd' =>	dflag++;
@@ -1060,6 +1061,8 @@ ircwriter(pidc: chan of int, fd: ref Sys->FD)
 stamp(): string
 {
 	tm := daytime->local(daytime->now());
+	if(tflag)
+		return sprint("%4d-%02d-%02d %02d:%02d:%02d", 1900+tm.year, 1+tm.mon, tm.mday, tm.hour, tm.min, tm.sec);
 	return sprint("%02d:%02d", tm.hour, tm.min);
 }
 
@@ -1225,7 +1228,10 @@ Target.write(t: self ref Target, s: string)
 {
 	t.putdata(s);
 	if(s != nil && t.logfd != nil) {
-		if(sys->fprint(t.logfd, "%s", s) < 0)
+		o := 0;
+		if(tflag)
+			o = 2;  # skip type
+		if(sys->fprint(t.logfd, "%s", s[o:]) < 0)
 			warn(sprint("writing log: %r"));
 	}
 	for(i := 0; i < len t.data; i++)

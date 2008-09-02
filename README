@@ -185,6 +185,8 @@ lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
 
 # todo
 
+- ircfs: really forget about a user on a channel if we part the channel.  now ircfs sometimes "resurrects" a channel because a user who was in that channel quit irc.
+- wm/irc: fix snarf/paste, sometimes it doesn't work, trying a second time makes it work
 - wm/irc: allow searching backwards and cycling to earlier hits
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
 - ircfs: on disconnect due to connection timeout ircfs hangs.  perhaps in combination with wm/irc disappearing
