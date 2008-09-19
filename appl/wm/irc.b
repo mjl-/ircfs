@@ -558,6 +558,11 @@ uncrap(s: string): (string, list of ref (int, int))
 		3 =>	# introduces color (and 2-digit code)
 			if(i+2 < len s && str->in(s[i+1], "0-9") && str->in(s[i+2], "0-9"))
 				i += 2;
+		31 =>	# starts/ends underlined
+			;
+		# not yet seen in wild:
+		# 22 =>	# starts/ends italic
+		# 	;
 		* =>	r[len r] = s[i];
 		}
 	return (r, rev(bolds));

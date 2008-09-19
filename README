@@ -185,6 +185,8 @@ lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
 
 # todo
 
+- ircfs:  for nick changes other than by self, wm/irc does not show new name?
+- wm/irc: highlight based on regex'en on command-line?  in addition to to current nick.
 - ircfs: really forget about a user on a channel if we part the channel.  now ircfs sometimes "resurrects" a channel because a user who was in that channel quit irc.
 - wm/irc: fix snarf/paste, sometimes it doesn't work, trying a second time makes it work
 - wm/irc: allow searching backwards and cycling to earlier hits
