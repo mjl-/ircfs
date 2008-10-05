@@ -34,13 +34,14 @@ Enotfound, Enotdir: import Styxservers;
 Histmax:	con 32*1024;
 Histdefault:	con 32*1024;
 
-Disconnected, Connecting, Connected: con iota;
+Disconnected, Dialing, Connecting, Connected: con iota;
 
 Dflag, dflag, tflag: int;
 logpath: string;
 netname: string;
 lastnick, lastaddr, lastfromhost: string;
 state := Disconnected;
+connectmsg: ref Tmsg.Write;  # only non-nil when connecting:  the ctl write "connect"
 starttime: int;
 
 Qroot, Qrootctl, Qevent, Qraw, Qnick, Qdir, Qctl, Qname, Qusers, Qdata: con iota;
@@ -106,6 +107,8 @@ ircinch: chan of (ref Rimsg, string, string);
 ircoutch: chan of array of byte;
 ircerrch: chan of string;
 daych: chan of int;
+dialerrch: chan of string;
+dialch: chan of (int, int);
 
 readerpid := writerpid := -1;
 
@@ -127,8 +130,6 @@ init(nil: ref Draw->Context, args: list of string)
 	lists = load Lists Lists->PATH;
 	irc = load Irc Irc->PATH;
 	irc->init(bufio);
-
-	sys->pctl(Sys->NEWPGRP, nil);
 
 	arg->init(args);
 	arg->setusage(arg->progname()+" [-Ddt] [-a addr] [-f fromhost] [-n nick] [-l logpath] netname");
@@ -152,6 +153,8 @@ init(nil: ref Draw->Context, args: list of string)
 		arg->usage();
 	netname = hd args;
 
+	sys->pctl(Sys->NEWPGRP, nil);
+
 	status = gettarget(sprint("(%s)", netname));
 	starttime = daytime->now();
 
@@ -159,6 +162,8 @@ init(nil: ref Draw->Context, args: list of string)
 	ircoutch = chan[16] of array of byte;
 	ircerrch = chan of string;
 	daych = chan of int;
+	dialerrch = chan of string;
+	dialch = chan of (int, int);
 
 	spawn dayticker();
 
@@ -169,6 +174,12 @@ init(nil: ref Draw->Context, args: list of string)
 	msgc: chan of ref Tmsg;
 	(msgc, srv) = Styxserver.new(sys->fildes(0), nav, big Qroot);
 
+	spawn main(msgc);
+}
+
+main(msgc: chan of ref Tmsg)
+{
+done:
 	for(;;) alt {
 	<-daych =>
 		tm := daytime->local(daytime->now());
@@ -179,22 +190,42 @@ init(nil: ref Draw->Context, args: list of string)
 				targets[i].write(daystr);
 
 	(m, line, err) := <-ircinch =>
+		say(sprint("ircin, err %q, line %q", err, line));
 		doirc(m, line, err);
 
+	err := <-dialerrch =>
+		say(sprint("dialerrch, err %q", err));
+		status.write("# dial failed: "+err);
+		if(connectmsg != nil)
+			replyerror(connectmsg, err);
+		connectmsg = nil;
+		disconnect();
+
+	(rpid, wpid) := <-dialch =>
+		say(sprint("dialch, pids %d %d", rpid, wpid));
+		status.write("# remote dialed, connecting...");
+		changestate(Connecting);
+		readerpid = rpid;
+		writerpid = wpid;
+		# note: state is set to Connected when irc welcome message is read.
+
 	err := <-ircerrch =>
+		say(sprint("ircerrch, err %q", err));
 		status.write("# irc connection error: "+err+"\n");
 		disconnect();
 
 	gm := <-msgc =>
+		say("styx msg");
 		if(gm == nil)
-			break;
+			break done;
 		pick m := gm {
 		Readerror =>
 			warn("read error: "+m.error);
-			break;
+			break done;
 		}
 		dostyx(gm);
 	}
+	killgrp(sys->pctl(0, nil));
 }
 
 dayticker()
@@ -355,9 +386,13 @@ doirc(m: ref Rimsg, line, err: string)
 		if(tagof mm == tagof Rimsg.Replytext)
 			case int mm.cmd {
 			irc->RPLwelcome =>
-				if(state == Connecting)
+				if(state == Connecting) {
+					status.write("# connected");
+					if(connectmsg != nil)
+						srv.reply(ref Rmsg.Write (connectmsg.tag, len connectmsg.data));
+					connectmsg = nil;
 					changestate(Connected);
-				else
+				} else
 					warn("RPLwelcome while already connected");
 
 			irc->RPLtopic =>	msg = "topic: "+msg;
@@ -436,9 +471,15 @@ dostyx(gm: ref Tmsg)
 		if(fid == nil)
 			return replyerror(m, err);
 		q := int fid.path&16rff;
+
 		t := findtarget(int fid.path>>8);
 		if(t == nil || t.dead)
 			return replyerror(m, Edead);
+
+		# during disconnect, we only allow ops on / (for readdir), ctl (to connect), and status dir.
+		if(state != Connected && q != Qroot && q != Qrootctl && q != Qevent && t.id != 0)
+			return replyerror(m, Enocon);
+
 		case q {
 		Qdata =>
 			if(t == nil)
@@ -482,10 +523,13 @@ dostyx(gm: ref Tmsg)
 		(f, err) := srv.canwrite(m);
 		if(f == nil)
 			return replyerror(m, err);
+		q := int f.path&16rff;
 		t := findtarget(int f.path>>8);
 		if(t == nil || t.dead)
 			return replyerror(m, Edead);
-		case int f.path&16rff {
+		if(state != Connected && q != Qrootctl && q != Qctl && t.id != 0)
+			return replyerror(m, Enocon);
+		case q {
 		Qrootctl or Qctl =>
 			ctl(m, t);
 		Qraw =>
@@ -496,8 +540,6 @@ dostyx(gm: ref Tmsg)
 			else
 				srv.reply(ref Rmsg.Write(m.tag, len m.data));
 		Qdata =>
-			if(state != Connected)
-				return replyerror(m, Enocon);
 			if(t.id == 0)
 				return replyerror(m, Estatus);
 			(toks, nil) := tokens(string m.data, "\n", -1);
@@ -517,15 +559,13 @@ dostyx(gm: ref Tmsg)
 		f := srv.getfid(m.fid);
 		if(f != nil && f.isopen) {
 			t := findtarget(int f.path>>8);
+			q := int f.path&16rff;
 			t.opens--;
-			case q := int f.path&16rff {
-			Qraw or Qevent or Qusers or Qdata =>
-				case q {
-				Qraw =>		rawfile = delfidfile(rawfile, f);
-				Qevent =>	eventfile = delfidfile(eventfile, f);
-				Qusers =>	t.users = delfidfile(t.users, f);
-				Qdata =>	t.data = delfidfile(t.data, f);
-				}
+			case q {
+			Qraw =>		rawfile = delfidfile(rawfile, f);
+			Qevent =>	eventfile = delfidfile(eventfile, f);
+			Qusers =>	t.users = delfidfile(t.users, f);
+			Qdata =>	t.data = delfidfile(t.data, f);
 			}
 			if(t.dead && t.opens == 0)
 				targets = del(targets, t);
@@ -547,16 +587,15 @@ dostyx(gm: ref Tmsg)
 			srv.reply(ref Rmsg.Read(m.tag, array[0] of byte));
 			return;
 		}
+		if(state != Connected && q != Qevent && t.id != 0)
+			return replyerror(m, Enocon);
 		case q {
 		Qraw =>
 			fidread(rawfile, f, m, nil);
 		Qevent =>
 			fidread(eventfile, f, m, nil);
 		Qnick =>
-			if(ic == nil)
-				replyerror(m, Enocon);
-			else
-				srv.reply(styxservers->readstr(m, ic.nick));
+			srv.reply(styxservers->readstr(m, ic.nick));
 		Qname =>
 			srv.reply(styxservers->readstr(m, t.name));
 		Qusers =>
@@ -576,6 +615,8 @@ dostyx(gm: ref Tmsg)
 		t := findtarget(int f.path>>8);
 		if(t == nil || t.dead)
 			return replyerror(m, Edead);
+		if(state != Connected)
+			return replyerror(m, Enocon);
 		ff := findfidfile(t.data, f);
 		n := int m.stat.length;
 		have := 0;
@@ -584,6 +625,11 @@ dostyx(gm: ref Tmsg)
 		srv.reply(ref Rmsg.Wstat(m.tag));
 
 	Flush =>
+		if(connectmsg != nil && connectmsg.tag == m.oldtag) {
+			connectmsg = nil;
+			return;
+		}
+
 		have := fidflush(eventfile, m.oldtag) || fidflush(rawfile, m.oldtag);
 		for(i := 0; !have && i < len targets; i++)
 			have = fidflush(targets[i].data, m.oldtag);
@@ -715,7 +761,7 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		return replyerror(m, "missing command");
 
 	cmd := hd toks;
-	if(!(state == Disconnected && (cmd == "connect" || cmd == "reconnect") || state == Connecting && cmd == "nick" || state == Connected))
+	if(state == Disconnected && cmd != "connect" && cmd != "reconnect" || state == Connecting && cmd != "nick")
 		return replyerror(m, Enocon);
 
 	err: string;
@@ -741,7 +787,16 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 			if(lastaddr == nil || lastnick == nil)
 				return replyerror(m, "not previously connected");
 		}
-		connect(lastaddr, lastfromhost, lastnick);
+
+		changestate(Dialing);
+		ircinch = chan of (ref Rimsg, string, string);
+		ircoutch = chan[16] of array of byte;
+		ircerrch = chan of string;
+
+		connectmsg = m;
+		spawn ircreader(lastaddr, lastfromhost, lastnick);
+		return;
+
 	"join" =>
 		if(rem == nil)
 			return replyerror(m, "bad join");
@@ -883,6 +938,7 @@ disconnect()
 	for(i := 1; i < len targets; i++)
 		if(!targets[i].dead)
 			targets[i].shutdown();
+	say(sprint("killing pids %d %d", readerpid, writerpid));
 	if(readerpid >= 0)
 		kill(readerpid);
 	if(writerpid >= 0)
@@ -890,21 +946,11 @@ disconnect()
 	readerpid = writerpid = -1;
 }
 
-connect(addr, fromhost, newnick: string)
-{
-	changestate(Connecting);
-	ircinch = chan of (ref Rimsg, string, string);
-	ircoutch = chan[16] of array of byte;
-
-	spawn ircreader(pidc := chan of int, addr, fromhost, newnick);
-	readerpid = <-pidc;
-	writerpid = <-pidc;
-}
-
 connectstatus(): string
 {
 	case state {
 	Connected =>	return "connected "+ic.nick;
+	Dialing =>	return "dialing";
 	Connecting =>	return "connecting";
 	Disconnected =>	return "disconnected";
 	* =>		return "unknown";
@@ -995,17 +1041,15 @@ dialfancy(addr: string, fromhost: string): (ref (ref Sys->FD, ref Sys->FD), stri
 	return (ref (cfd, dfd), nil);
 }
 
-ircreader(pidc: chan of int, addr, fromhost, newnick: string)
+ircreader(addr, fromhost, newnick: string)
 {
-	pidc <-= sys->pctl(0, nil);
 	dfd, cfd: ref Sys->FD;
 
 	if(fromhost == nil) {
 		say("dialing");
 		(ok, conn) := sys->dial(addr, nil);
 		if(ok < 0) {
-			pidc <-= -1;
-			ircerrch <-= sprint("dial %s: %r", addr);
+			dialerrch <-= sprint("dial %s: %r", addr);
 			return;
 		}
 		dfd = conn.dfd;
@@ -1014,8 +1058,7 @@ ircreader(pidc: chan of int, addr, fromhost, newnick: string)
 		say("dialing with bind and connect");
 		(fds, err) := dialfancy(addr, fromhost);
 		if(err != nil) {
-			pidc <-= -1;
-			ircerrch <-= "dial: "+err;
+			dialerrch <-= "dial: "+err;
 			return;
 		}
 		(cfd, dfd) = *fds;
@@ -1026,12 +1069,13 @@ ircreader(pidc: chan of int, addr, fromhost, newnick: string)
 	err: string;
 	(ic, err) = Ircc.new(dfd, addr, newnick, newnick);
 	if(err != nil) {
-		pidc <-= -1;
-		ircerrch <-= err;
+		dialerrch <-= err;
 		return;
 	}
-	spawn ircwriter(pidc, dfd);
+	spawn ircwriter(pidc := chan of int, dfd);
 	say("new ircc");
+	wpid := <-pidc;
+	dialch <-= (sys->pctl(0, nil), wpid);
 
 	for(;;) {
 		(m, l, merr) := ic.readmsg();
@@ -1383,11 +1427,21 @@ stripnewline(l: string): string
 	return l;
 }
 
+killgrp(pid: int)
+{
+	progctl(pid, "killgrp");
+}
+
 kill(pid: int)
+{
+	progctl(pid, "kill");
+}
+
+progctl(pid: int, ctl: string)
 {
 	fd := sys->open(sprint("/prog/%d/ctl", pid), Sys->OWRITE);
 	if(fd != nil)
-		sys->fprint(fd, "kill");
+		sys->fprint(fd, "%s", ctl);
 }
 
 warn(s: string)
