@@ -7,13 +7,8 @@ limbo for use under inferno.
 
 # download
 
-the hg repository for this code is currently at
-
-	http://www.ueber.net/who/mjl/hg/ircfs/
-
-get a copy by running:
-
-	hg clone static-http://www.ueber.net/who/mjl/hg/ircfs/
+see ircfs' homepage at http://www.ueber.net/code/r/ircfs for the
+latest version.
 
 
 # install
@@ -69,124 +64,16 @@ the mount and styxlisten calls earlier by "-k $home/keyring/ircfs".
 see the manual pages for details, ircfs(4) and wm-irc(1).
 
 
-# ircfs
-
-ircfs maintains a connection to an irc server and presents each
-communication line (either a channel it has joined, or a private
-query to a user) as a directory.  the name of the directory is a
-sequence number.  the files in the directory allow the user to read
-lines being said on the channel, write new lines, execute special
-commands (such as setting the topic, kicking people).  there is
-always a directory "0" which keeps status information, e.g. messages
-about the connection.
-
-ircfs serves the following directory hiearchy:
-/ctl
-/event
-/nick
-/raw
-/n	# n is variable, a number
-	ctl
-	data
-	name
-	users
-
-commands can be written to /ctl and /n/ctl:
-connect, reconnect, join, quit, back, away, nick, umode, whois,
-names (or the shorter n), me (for ctcp action), notice, invite,
-version, time, ping (all three ctcp requests), kick, op, ban, voice,
-deop, unban, devoice, mode, part, topic.
-
-most ctl usages can be guessed;  connect takes two or three arguments: a
-network address, a nickname and optionally the hostname or ip address
-from which to initiate the connection.
-
-from /event, events can be read such as new or closed channels/queries
-("new n name", "del n"), connection state changes such as "connecting",
-"connected nick" or "disconnected", and nick changes such as "nick
-nick".
-
-reading /nick returns the nick name.
-
-reading from /raw returns all irc messages read from or written to
-the irc server, with <<< or >>> prepended.
-
-writing to /raw makes ircfs write these messages to the irc server.
-
-reading from /n/name returns the name of the channel or user.
-
-reading from /n/users is only useful if it is a channel: it returns
-lines in the form of "+user" and "-user" when a user joins or parts.
-
-writing to /n/data makes ircfs say those lines on the channel/user.
-multiple lines can be written in one write.
-
-reading from /n/data returns lines of the form "+ xx:xx uuuuuser:
-text\n" for text being said at time xx:xx by uuuuuser, and
-of the form "# xx:xx text" for meta-lines such as mode/topic changes
-or users joining/leaving.  by default, a history of some 32KB is
-returned, the bytes of history to read can be set with a wstat on
-an open fid to the file.
-
-
-# wm/irc
-
-wm/irc is a program that reads one or more "irc directories", i.e.
-directories served by one or more ircfs-en.  each such ircfs is
-called a "server", each channel or query with a user is called a
-"window".  the listbox on the left shows all windows grouped by
-server, window "0" (the status window) is moved one character to
-the left.  selecting a name will show the contents for that window.
-
-text can be said by typing it in the bottom entry.  lines starting
-with a / are considered to be commands and written to the windows
-ctl file on ircfs (with the slash removed).  a few commands are
-directly interpreted by wm/irc:
-
-close
-	close the current window and remove from listed windows
-add
-        add new server, single argument must be a path to root ircfs
-        directory
-del
-        remove the current server including all its channel/query
-        windows
-exit
-	shutdown wm/irc
-windows
-        show information about windows served by the ircfs and their
-        status in wm/irc (open == in listbox, dead == in listbox
-        but closed at ircfs side (e.g. due to eof after parting),
-        unopen == not in listbox (and not closed on ircfs side)).
-        information consists of channel/user name and directory
-        name
-addwin
-	add window to listbox, single argument must be directory name
-clearwin
-	clear the current window
-
-wm/irc has quite some features to make use comfortable:
-- nick completion using tab
-- nick highlighting, searching text
-- keyboard shortcuts for navigating windows: ctrl-[pnzxk] for cycling
-  windows: back, forward, previous active, next active, previous shown
-- more shortcuts: ctrl-t for focusing on text, ctrl-f for focusing
-  on search box
-
-
 # licence & author
 
 this code is in the public domain.  the code is written by mechiel
 lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
 
 
-# testing
-
-
 # todo
 
 - ircfs:  for nick changes other than by self, wm/irc does not show new name?
-- wm/irc: highlight based on regex'en on command-line?  in addition to to current nick.
+- wm/irc: highlight based on regex'en on command-line?  in addition to current nick.
 - ircfs: really forget about a user on a channel if we part the channel.  now ircfs sometimes "resurrects" a channel because a user who was in that channel quit irc.
 - wm/irc: fix snarf/paste, sometimes it doesn't work, trying a second time makes it work
 - wm/irc: allow searching backwards and cycling to earlier hits

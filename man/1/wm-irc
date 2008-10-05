@@ -144,7 +144,7 @@ Switch focus to the
 input entry.
 Works with focus on the list on the left, in the find entry and main window.
 .TP
-.BR "control -" " and " "control ="
+.BR "page up" " and " "page down" " or " "control -" " and " "control ="
 Scroll up/down in the main text window.
 .TP
 .B "tab"
