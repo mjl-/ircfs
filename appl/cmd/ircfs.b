@@ -1,31 +1,28 @@
 implement Ircfs;
 
 include "sys.m";
+	sys: Sys;
+	sprint: import sys;
 include "draw.m";
 include "arg.m";
 include "bufio.m";
 	bufio: Bufio;
 	Iobuf: import bufio;
 include "string.m";
+	str: String;
 include "styx.m";
+	styx: Styx;
 	Tmsg, Rmsg: import Styx;
 include "styxservers.m";
+	styxservers: Styxservers;
+	Styxserver, Fid, Navigator, Navop: import styxservers;
 include "daytime.m";
+	daytime: Daytime;
 include "lists.m";
+	lists: Lists;
 include "irc.m";
-
-sys: Sys;
-str: String;
-styx: Styx;
-styxservers: Styxservers;
-daytime: Daytime;
-lists: Lists;
-irc: Irc;
-
-sprint: import sys;
-Styxserver, Fid, Navigator, Navop: import styxservers;
-lowercase, ischannel, Ircc, Timsg, Rimsg, From: import irc;
-reverse: import lists;
+	irc: Irc;
+	lowercase, ischannel, Ircc, Timsg, Rimsg, From: import irc;
 
 Etarget: 	con "no such target";
 Edead:		con "file closed";
@@ -886,8 +883,10 @@ disconnect()
 	for(i := 1; i < len targets; i++)
 		if(!targets[i].dead)
 			targets[i].shutdown();
-	kill(readerpid);
-	kill(writerpid);
+	if(readerpid >= 0)
+		kill(readerpid);
+	if(writerpid >= 0)
+		kill(writerpid);
 	readerpid = writerpid = -1;
 }
 
@@ -938,7 +937,7 @@ tokens(s, splitstr: string, n: int): (list of string, string)
 	}
 	if(n > 0)
 		return (nil, s);
-	return (reverse(toks), rem);
+	return (lists->reverse(toks), rem);
 }
 
 # dial with a local hostname (which is translated using /net/cs)
@@ -1005,6 +1004,7 @@ ircreader(pidc: chan of int, addr, fromhost, newnick: string)
 		say("dialing");
 		(ok, conn) := sys->dial(addr, nil);
 		if(ok < 0) {
+			pidc <-= -1;
 			ircerrch <-= sprint("dial %s: %r", addr);
 			return;
 		}
@@ -1014,6 +1014,7 @@ ircreader(pidc: chan of int, addr, fromhost, newnick: string)
 		say("dialing with bind and connect");
 		(fds, err) := dialfancy(addr, fromhost);
 		if(err != nil) {
+			pidc <-= -1;
 			ircerrch <-= "dial: "+err;
 			return;
 		}
@@ -1025,6 +1026,7 @@ ircreader(pidc: chan of int, addr, fromhost, newnick: string)
 	err: string;
 	(ic, err) = Ircc.new(dfd, addr, newnick, newnick);
 	if(err != nil) {
+		pidc <-= -1;
 		ircerrch <-= err;
 		return;
 	}
