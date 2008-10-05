@@ -1211,7 +1211,7 @@ Fidfile.styxop(ff: self ref Fidfile, t: ref Target): ref Rmsg.Read
 	ff.reads = ff.reads[1:];
 
 	d := array[0] of byte;
-	while(ff.histoff < t.end && len d+len (nd := t.hist[ff.histoff%len t.hist]) <= r.count || len d == 0) {
+	while(ff.histoff < t.end && (len d+len (nd := t.hist[ff.histoff%len t.hist]) <= r.count || len d == 0)) {
 		newd := array[len d+len nd] of byte;
 		newd[:] = d;
 		newd[len d:] = nd;
