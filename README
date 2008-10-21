@@ -72,6 +72,9 @@ lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
 
 # todo
 
+- wm/irc: add button to "mark all windows as read", handy when switching views between two wm/irc's on different machines.
+- ircfs: introduce new type of line for stuff we wrote ourselves?  that should mark that window as read too.  handy when having two wm/irc's open.
+- ircfs: sometimes old lines are reinserted in the data file.  probably something wrong with accounting of the lines for the data file.
 - ircfs:  for nick changes other than by self, wm/irc does not show new name?
 - wm/irc: highlight based on regex'en on command-line?  in addition to current nick.
 - ircfs: really forget about a user on a channel if we part the channel.  now ircfs sometimes "resurrects" a channel because a user who was in that channel quit irc.

@@ -311,6 +311,7 @@ dotk(cmd: string)
 		(s, nil) := readfile("/dev/snarf");
 		if(str->drop(s, "^\n") == nil) {
 			tkcmd(".l insert insert '"+s);
+			tkcmd("update");
 			return;
 		}
 		pick win := curwin {
