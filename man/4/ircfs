@@ -163,7 +163,7 @@ The following commands only work on channels and require one or more user names 
 kick, op, deop, ban, unban, voice, devoice .
 .TP
 .B /n/data
-Data written to this file is sent to the channel or user query.  A write can contain multiple lines.  Reads on this file block until activity occurs on the channel or query.  After opening, reads will first return a backlog of text.  Each line will start with two characters, ``+ '' for normal text, ``# '' for meta text, and ``! '' for non-irc protocol meta text.  Meta text is information about the channel, such as users joining or leaving a channel, new topics, mode changes, etc.  These characters are nearly always followed by a time stamp of the form ``hh:mm '', followed by the text itself.  Date changes are written with the ``! '' meta text line.
+Data written to this file is sent to the channel or user query.  A write can contain multiple lines.  Reads on this file block until activity occurs on the channel or query.  After opening, reads will first return a backlog of text.  Each line will start with two characters, ``+ '' for normal text, ``- '' for normal text written by the client itself, ``# '' for meta text, and ``! '' for non-irc protocol meta text.  Meta text is information about the channel, such as users joining or leaving a channel, new topics, mode changes, etc.  These characters are nearly always followed by a time stamp of the form ``hh:mm '', followed by the text itself.  Date changes are written with the ``! '' meta text line.
 .TP
 .B /n/name
 Reads return the name of the channel or the user.  For the status directory ``0'' the string ``(netname)'' is returned,

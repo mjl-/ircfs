@@ -73,10 +73,8 @@ lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
 # todo
 
 - ircfs: issue a "who" irc command on our own nick after we are connected.  use the nick+user+hostname to get an approximation on the max length of a line. (from soul9)
-- wm/irc: add button to "mark all windows as read", handy when switching views between two wm/irc's on different machines.
-- ircfs: introduce new type of line for stuff we wrote ourselves?  that should mark that window as read too.  handy when having two wm/irc's open.
 - ircfs: sometimes old lines are reinserted in the data file.  probably something wrong with accounting of the lines for the data file.
-- ircfs:  for nick changes other than by self, wm/irc does not show new name?
+- ircfs: for nick changes other than by self, wm/irc does not show new name?
 - ircfs: really forget about a user on a channel if we part the channel.  now ircfs sometimes "resurrects" a channel because a user who was in that channel quit irc.
 - wm/irc: fix snarf/paste, sometimes it doesn't work, trying a second time makes it work
 - wm/irc: allow searching backwards and cycling to earlier hits

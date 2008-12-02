@@ -116,12 +116,13 @@ tkcmds := array[] of {
 	"button .snarf -text snarf -command {send cmd snarf; focus .l}",
 	"button .paste -text paste -command {send cmd paste; focus .l}",
 	"button .plumb -text plumb -command {send cmd plumb; focus .l}",
+	"button .mark -text mark -command {send cmd mark; focus .l}",
 	"entry .find",
 	"bind .find <Key-\n> {send cmd find}",
 	"bind .find <Control-n> {send cmd findnext}",
 	"bind .find <Control-t> {focus .l}",
 	"button .next -text find -command {send cmd findnext}",
-	"pack .snarf .paste .plumb -side left -in .m.ctl",
+	"pack .snarf .paste .plumb .mark -side left -in .m.ctl",
 	"pack .next -side right -in .m.ctl",
 	"pack .find -side right -in .m.ctl -fill x -expand 1",
 	"pack .m.ctl -in .m -fill x",
@@ -334,6 +335,10 @@ dotk(cmd: string)
 		if(s != nil)
 			curwin.plumbsend(s, "name", curwin.name);
 
+	"mark" =>
+		for(i := 0; i < len windows; i++)
+			windows[i].setstate(None, 1);
+
 	"nextwin" =>
 		showwindow(windows[(curwin.listindex+1)%len windows]);
 
@@ -437,9 +442,15 @@ dodata(win: ref Win.Irc, lines: list of string)
 			continue;
 		}
 		tag := "data";
+		state := Data;
 		nostatechange := m[:2] == "! ";
-		if(m[:2] == "# " || m[:2] == "! ")
+		case m[:2] {
+		"# " or "! " =>
 			tag = "meta";
+			state = Meta;
+		"- " =>
+			state = None;
+		}
 
 		(mm, bolds) := uncrap(m[2:]);
 		m = mm+"\n";
@@ -460,12 +471,9 @@ dodata(win: ref Win.Irc, lines: list of string)
 		# during normal operation we typically get one line per read.
 		# this is a simple heuristic to start without all windows highlighted...
 		if(nlines == 1 && win != curwin && !nostatechange) {
-			if(tag == "meta")
-				win.setstate(Meta, 1);
-			else if(!win.ischan || hl != nil)
-				win.setstate(Highlight, 1);
-			else
-				win.setstate(Data, 1);
+			if(state != None && state != Meta && (!win.ischan || hl != nil))
+				state = Highlight;
+			win.setstate(state, 1);
 		}
 	}
 	win.scrolltext(seetop, seebottom);

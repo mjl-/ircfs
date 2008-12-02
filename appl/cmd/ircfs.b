@@ -548,7 +548,7 @@ dostyx(gm: ref Tmsg)
 				err = writemsg(ref Timsg.Privmsg(t.name, hd toks));
 				if(err != nil)
 					return replyerror(m, err);
-				dwrite(t.name, sprint("%s %8s: %s", stamp(), ic.nick, hd toks));
+				sdwrite(t.name, sprint("%s %8s: %s", stamp(), ic.nick, hd toks));
 			}
 			srv.reply(ref Rmsg.Write(m.tag, len m.data));
 		* =>
@@ -835,7 +835,7 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 			return replyerror(m, Estatus);
 		err = writemsg(ref Timsg.Privmsg(t.name, "\u0001ACTION "+rem+"\u0001"));
 		if(err == nil)
-			dwrite(t.name, sprint("%s *%s %s", stamp(), ic.nick, rem));
+			sdwrite(t.name, sprint("%s *%s %s", stamp(), ic.nick, rem));
 	"notice" =>
 		if(t.id == 0)
 			return replyerror(m, Estatus);
@@ -1330,6 +1330,11 @@ gettarget(name: string): ref Target
 		writefile(eventfile, sprint("new %d %s\n", t.id, name));
 	}
 	return t;
+}
+
+sdwrite(name, text: string)
+{
+	gettarget(name).write("- "+text+"\n");
 }
 
 dwrite(name, text: string)
