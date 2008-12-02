@@ -337,6 +337,7 @@ doirc(m: ref Rimsg, line, err: string)
 				t := targets[i];
 				if(t.dead)
 					continue;
+				t.newjoined = delnick(t.newjoined, lnick);
 				if(hasnick(t.joined, lnick) || t.lname == lnick) {
 					t.joined = delnick(t.joined, lnick);
 					writefile(t.users, sprint("-%s\n", mm.f.nick));
@@ -359,7 +360,9 @@ doirc(m: ref Rimsg, line, err: string)
 		mwrite(mm.where, sprint("%s %s (%s) has joined", stamp(), mm.f.nick, mm.f.text()));
 	Part =>
 		t := gettarget(mm.where);
-		t.joined = delnick(t.joined, lowercase(mm.f.nick));
+		lnick := lowercase(mm.f.nick);
+		t.newjoined = delnick(t.joined, lnick);
+		t.joined = delnick(t.joined, lnick);
 		writefile(t.users, sprint("-%s\n", mm.f.nick));
 		if(ic.fromself(mm.f)) {
 			mwrite(mm.where, sprint("%s you (%s) have left %s", stamp(), mm.f.text(), mm.where));
@@ -370,6 +373,7 @@ doirc(m: ref Rimsg, line, err: string)
 	Kick =>
 		t := gettarget(mm.where);
 		lwho := lowercase(mm.who);
+		t.newjoined = delnick(t.newjoined, lwho);
 		t.joined = delnick(t.joined, lwho);
 		writefile(t.users, sprint("-%s\n", mm.who));
 		if(lwho == ic.lnick)

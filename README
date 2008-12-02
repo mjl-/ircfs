@@ -74,15 +74,12 @@ lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
 
 - ircfs: issue a "who" irc command on our own nick after we are connected.  use the nick+user+hostname to get an approximation on the max length of a line. (from soul9)
 - ircfs: sometimes old lines are reinserted in the data file.  probably something wrong with accounting of the lines for the data file.
-- ircfs: for nick changes other than by self, wm/irc does not show new name?
-- ircfs: really forget about a user on a channel if we part the channel.  now ircfs sometimes "resurrects" a channel because a user who was in that channel quit irc.
-- wm/irc: fix snarf/paste, sometimes it doesn't work, trying a second time makes it work
 - wm/irc: allow searching backwards and cycling to earlier hits
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
-- ircfs: on disconnect due to connection timeout ircfs hangs.  perhaps in combination with wm/irc disappearing
 - ircfs: fix ircfs-bug.txt
 - wm/irc: somehow show in interface that remote connection is not responding?
 
+- wm/irc: fix snarf/paste, sometimes it doesn't work, trying a second time makes it work.  not sure what to do about it...
 - read irc rfc's, try on many networks/channels
 - find ways to crash ircfs and wm/irc, and fix it
 - ircfs: unify reading/writing irc messages in /appl/lib/irc.b?  messages are almost bidirectional?

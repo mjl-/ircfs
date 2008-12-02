@@ -548,6 +548,10 @@ douser(w: ref Win.Irc, s: string)
 		user := l[1:];
 		case l[0] {
 		'+' =>	w.users = user::w.users;
+			if(!w.ischan) {
+				w.name = user;
+				drawstate(w);
+			}
 		'-' =>	users: list of string;
 			for(; w.users != nil; w.users = tl w.users)
 				if(hd w.users != user)
@@ -881,7 +885,12 @@ Win.setstate(w: self ref Win, state, draw: int)
 		w.status = sprint("%c%s", c, ws);
 	}
 	if(draw)
-		tkcmd(sprint(".targs delete %d; .targs insert %d {%s%s}", w.listindex, w.listindex, w.status, w.name));
+		drawstate(w);
+}
+
+drawstate(w: ref Win)
+{
+	tkcmd(sprint(".targs delete %d; .targs insert %d {%s%s}", w.listindex, w.listindex, w.status, w.name));
 }
 
 Win.scroll(w: self ref Win)
