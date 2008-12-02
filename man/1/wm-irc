@@ -11,6 +11,9 @@ irc \- graphical interface to the irc file system
 ] [
 .B -h
 .I histsize
+] [
+.B -r
+.I hlregex
 ]
 .I path ...
 .SH DESCRIPTION
@@ -52,6 +55,11 @@ Set the window size to
 Do not read more than
 .I histsize
 bytes of backlog from ircfs when opening a new window.  Useful on slow connections.
+.TP
+.BI -r " hlregex"
+Highlight text matches
+.I hlregex
+too.  Can be specified multiple times.  The own nick is always hightlighted.
 .TP
 .B -d
 Enable debugging output.

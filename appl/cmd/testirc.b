@@ -1,18 +1,16 @@
 implement Testirc;
 
 include "sys.m";
+	sys: Sys;
+	sprint: import sys;
 include "draw.m";
 include "arg.m";
 include "bufio.m";
 	bufio: Bufio;
 	Iobuf: import bufio;
 include "irc.m";
-
-sys: Sys;
-irc: Irc;
-
-print, sprint, fprint, fildes: import sys;
-Ircc, Timsg, Rimsg, From: import irc;
+	irc: Irc;
+	Ircc, Timsg, Rimsg, From: import irc;
 
 dflag: int;
 addr: string;
@@ -35,8 +33,7 @@ init(nil: ref Draw->Context, args: list of string)
 		case c {
 		'a' =>	addr = arg->earg();
 		'd' =>	dflag++;
-		* =>	fprint(fildes(2), "bad option\n");
-			arg->usage();
+		* =>	arg->usage();
 		}
 	args = arg->argv();
 	if(len args != 0)
@@ -75,11 +72,11 @@ init(nil: ref Draw->Context, args: list of string)
 say(s: string)
 {
 	if(dflag)
-		fprint(fildes(2), "%s\n", s);
+		sys->fprint(sys->fildes(2), "%s\n", s);
 }
 
 fail(s: string)
 {
-	fprint(fildes(2), "%s\n", s);
+	sys->fprint(sys->fildes(2), "%s\n", s);
 	raise "fail:"+s;
 }

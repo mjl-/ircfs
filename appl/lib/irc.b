@@ -1,16 +1,14 @@
 implement Irc;
 
 include "sys.m";
+	sys: Sys;
+	sprint: import sys;
 include "bufio.m";
 	bufio: Bufio;
 	Iobuf: import bufio;
 include "string.m";
+	str: String;
 include "irc.m";
-
-sys: Sys;
-str: String;
-sprint: import sys;
-prefix: import str;
 
 # when adding new ones, consider adding it to irc.m too
 desttypes := array[] of {
@@ -266,11 +264,11 @@ Rimsg.unpack(s: string): (ref Rimsg, string)
 		modes: list of (string, list of string);
 		i := 1;
 		while(i < len params) {
-			if(!prefix("-", params[i]) && !prefix("+", params[i]))
+			if(!str->prefix("-", params[i]) && !str->prefix("+", params[i]))
 				return (nil, "bad params for mode");
 			mode := params[i++];
 			modeparams: list of string;
-			while(i < len params && !prefix("-", params[i]) && !prefix("+", params[i]))
+			while(i < len params && !str->prefix("-", params[i]) && !str->prefix("+", params[i]))
 				modeparams = params[i++]::modeparams;
 			modes = (mode, rev(modeparams))::modes;
 		}

@@ -1,28 +1,28 @@
 implement WmIrc;
 
 include "sys.m";
+	sys: Sys;
+	sprint: import sys;
 include "draw.m";
 include "string.m";
+	str: String;
 include "arg.m";
 include "bufio.m";
 	bufio: Bufio;
 	Iobuf: import bufio;
+include "regex.m";
+	regex: Regex;
+	Re: import Regex;
 include "plumbmsg.m";
+	plumbmsg: Plumbmsg;
+	Msg: import plumbmsg;
 include "tk.m";
+	tk: Tk;
 include "tkclient.m";
+	tkclient: Tkclient;
 include "irc.m";
+	irc: Irc;
 include "keyboard.m";
-
-sys: Sys;
-draw: Draw;
-str: String;
-plumbmsg: Plumbmsg;
-tk: Tk;
-tkclient: Tkclient;
-irc: Irc;
-
-sprint, fprint, print, fildes: import sys;
-Msg: import plumbmsg;
 
 Windowlinesmax: con 8*1024;
 
@@ -99,6 +99,7 @@ wmctl: chan of string;
 lineheight := 0;
 width := 800;
 height := 600;
+res: list of Re;
 
 
 WmIrc: module
@@ -180,26 +181,31 @@ init(ctxt: ref Draw->Context, args: list of string)
 	sys = load Sys Sys->PATH;
 	if(ctxt == nil)
 		fail("no window context");
-	draw = load Draw Draw->PATH;
 	str = load String String->PATH;
 	bufio = load Bufio Bufio->PATH;
 	arg := load Arg Arg->PATH;
+	regex = load Regex Regex->PATH;
 	plumbmsg = load Plumbmsg Plumbmsg->PATH;
 	tk = load Tk Tk->PATH;
-	tkclient= load Tkclient Tkclient->PATH;
+	tkclient = load Tkclient Tkclient->PATH;
 	irc = load Irc Irc->PATH;
 	irc->init(bufio);
 
 	arg->init(args);
-	arg->setusage(arg->progname()+" [-ds] [-g width height] [-h histsize] [path ...]");
+	arg->setusage(arg->progname()+" [-ds] [-g width height] [-h histsize] [-r hlregex] [path ...]");
 	while((c := arg->opt()) != 0)
 		case c {
 		'd' =>	dflag++;
 		'g' =>	width = int arg->earg();
 			height = int arg->earg();
 		'h' =>	readhistsize = big arg->earg();
+		'r' =>
+			(r, err) := regex->compile(arg->earg(), 0);
+			if(err != nil)
+				fail(err);
+			res = r::res;
 		's' =>	sflag++;
-		* =>	fprint(fildes(2), "bad option\n");
+		* =>	sys->fprint(sys->fildes(2), "bad option\n");
 			arg->usage();
 		}
 	args = arg->argv();
@@ -444,10 +450,11 @@ dodata(win: ref Win.Irc, lines: list of string)
 			tkcmd(sprint(".%s tag add bold {end -1c linestart +%dc} {end -1 linestart +%dc}", win.tkid, start, end));
 		}
 
-		hl := substr(win.srv.lnick, irc->lowercase(m));
-		if(hl >= 0)
-			tkcmd(sprint(".%s tag add hl {end -1c linestart +%dc} {end -1 linestart +%dc +%dc}",
-				win.tkid, hl, hl, len win.srv.nick));
+		hl := matches(win.srv.lnick, irc->lowercase(m));
+		for(; hl != nil; hl = tl hl) {
+			(s, e) := *hd hl;
+			tkcmd(sprint(".%s tag add hl {end -1c linestart +%dc} {end -1 linestart +%dc}", win.tkid, s, e));
+		}
 
 		# at startup, we read a backlog.  these lines will be sent many lines in one read.
 		# during normal operation we typically get one line per read.
@@ -455,7 +462,7 @@ dodata(win: ref Win.Irc, lines: list of string)
 		if(nlines == 1 && win != curwin && !nostatechange) {
 			if(tag == "meta")
 				win.setstate(Meta, 1);
-			else if(!win.ischan || hl >= 0)
+			else if(!win.ischan || hl != nil)
 				win.setstate(Highlight, 1);
 			else
 				win.setstate(Data, 1);
@@ -647,7 +654,7 @@ command(line: string)
 
 	"away" =>
 		for(l := servers; l != nil; l = tl l)
-			if(fprint((hd l).ctlfd, "%s", line) < 0)
+			if(sys->fprint((hd l).ctlfd, "%s", line) < 0)
 				tkwarn(sprint("%q: %r", (hd l).path));
 
 	* =>
@@ -838,7 +845,7 @@ Win.ctlwrite(win: self ref Win, s: string): string
 	Irc =>
 		if(w.ctlfd == nil)
 			w.ctlfd = sys->open(sprint("%s/%s/ctl", w.srv.path, w.id), Sys->OWRITE);
-		if(w.ctlfd == nil || fprint(w.ctlfd, "%s", s) < 0)
+		if(w.ctlfd == nil || sys->fprint(w.ctlfd, "%s", s) < 0)
 			return sprint("%r");
 		return nil;
 	Status =>
@@ -1063,6 +1070,19 @@ substr(sub, s: string): int
 	return -1;
 }
 
+matches(sub: string, s: string): list of ref (int, int)
+{
+	hl := substr(sub, s);
+	if(hl >= 0)
+		l := ref (hl, hl+len sub)::nil;
+	for(r := res; r != nil; r = tl r) {
+		a := regex->execute(hd r, s);
+		for(i := 0; i < len a; i++)
+			l = ref a[i]::l;
+	}
+	return l;
+}
+
 taketl(s, cl: string): string
 {
 	for(i := len s; i > 0 && str->in(s[i-1], cl); i--)
@@ -1090,28 +1110,28 @@ rev[T](l: list of T): list of T
 kill(pid: int)
 {
 	if(pid >= 0 && (fd := sys->open(sprint("/prog/%d/ctl", pid), Sys->OWRITE)) != nil)
-		fprint(fd, "kill");
+		sys->fprint(fd, "kill");
 }
 
 killgrp(pid: int)
 {
 	if((fd := sys->open(sprint("/prog/%d/ctl", pid), Sys->OWRITE)) != nil)
-		fprint(fd, "killgrp");
+		sys->fprint(fd, "killgrp");
 }
 
 say(s: string)
 {
 	if(dflag)
-		fprint(fildes(2), "%s\n", s);
+		warn(s);
 }
 
 warn(s: string)
 {
-	fprint(fildes(2), "%s\n", s);
+	sys->fprint(sys->fildes(2), "%s\n", s);
 }
 
 fail(s: string)
 {
-	fprint(fildes(2), "%s\n", s);
+	warn(s);
 	raise "fail:"+s;
 }
