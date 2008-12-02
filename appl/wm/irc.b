@@ -120,10 +120,12 @@ tkcmds := array[] of {
 	"entry .find",
 	"bind .find <Key-\n> {send cmd find}",
 	"bind .find <Control-n> {send cmd findnext}",
+	"bind .find <Control-p> {send cmd findprev}",
 	"bind .find <Control-t> {focus .l}",
-	"button .next -text find -command {send cmd findnext}",
+	"button .prev -text << -command {send cmd findprev}",
+	"button .next -text >> -command {send cmd findnext}",
 	"pack .snarf .paste .plumb .mark -side left -in .m.ctl",
-	"pack .next -side right -in .m.ctl",
+	"pack .next .prev -side right -in .m.ctl",
 	"pack .find -side right -in .m.ctl -fill x -expand 1",
 	"pack .m.ctl -in .m -fill x",
 
@@ -291,9 +293,10 @@ dotk(cmd: string)
 	say(sprint("tk ui cmd: %q", word));
 
 	case word {
-	"find" or "findnext" =>
-		start := "1.0";
-		if(word == "findnext") {
+	"find" or "findnext" or "findprev" =>
+		start := "end";
+		if(word != "find") {
+			# there should be only one range
 			nstart := tkcmd(sprint(".%s tag nextrange search 1.0", curwin.tkid));
 			if(nstart != nil && nstart[0] != '!')
 				(start, nil) = str->splitstrl(nstart, " ");
@@ -301,7 +304,13 @@ dotk(cmd: string)
 		tkcmd(sprint(".%s tag remove search 1.0 end", curwin.tkid));
 		pattern := tkget(".find get");
 		if(pattern != nil) {
-			index := tkcmd(sprint(".%s search [.find get] {%s +%dc}", curwin.tkid, start, len pattern));
+			opt := "";
+			if(word != "findnext")
+				opt = "-backwards";
+			else if(start != "end")
+				start = sprint("{%s +%dc}", start, len pattern);
+			say(sprint(".%s search %s [.find get] %s", curwin.tkid, opt, start));
+			index := tkcmd(sprint(".%s search %s [.find get] %s", curwin.tkid, opt, start));
 			say("find, index: "+index);
 			if(index != nil && index[0] != '!')
 				tkcmd(sprint(".%s tag add search %s {%s +%dc}; .%s see %s",

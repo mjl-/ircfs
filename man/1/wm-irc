@@ -27,8 +27,8 @@ in ircfs, and corresponds to a
 in wm/irc.
 Below this main area, an input entry allows new text and commands to be sent.
 Atop the main window are buttons to snarf, paste or plumb the current text selection,
-a button to mark all windows as seen (removing their activity status),
-and an input entry and find button for searching.
+a button to mark all windows as seen (clearing their activity status),
+and a search input entry and buttons for searching the previous and next match.
 Left of these elements is a listing with names of opened irc directories.  Selecting one displays it on the main area.
 
 .PP
@@ -142,10 +142,10 @@ Switch focus to the
 .I find
 input entry.
 .TP
-.B "control n"
-Find next match.  Works only with focus on the
+.BR "control p" " and " "control n"
+Find previous or next match.  Works only with focus on the
 .I find
-input entry.
+input entry.  Typing a newline starts a new search or clears a current one.  Searching starts at the bottom of the window.
 .TP
 .B "control t"
 Switch focus to the

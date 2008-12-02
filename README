@@ -74,7 +74,6 @@ lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
 
 - ircfs: issue a "who" irc command on our own nick after we are connected.  use the nick+user+hostname to get an approximation on the max length of a line. (from soul9)
 - ircfs: sometimes old lines are reinserted in the data file.  probably something wrong with accounting of the lines for the data file.
-- wm/irc: allow searching backwards and cycling to earlier hits
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
 - ircfs: fix ircfs-bug.txt
 - wm/irc: somehow show in interface that remote connection is not responding?
