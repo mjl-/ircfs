@@ -43,6 +43,7 @@ lastnick, lastaddr, lastfromhost: string;
 state := Disconnected;
 connectmsg: ref Tmsg.Write;  # only non-nil when connecting:  the ctl write "connect"
 starttime: int;
+imsgselflen := 0;
 
 Qroot, Qrootctl, Qevent, Qraw, Qnick, Qdir, Qctl, Qname, Qusers, Qdata: con iota;
 files := array[] of {
@@ -291,6 +292,11 @@ doirc(m: ref Rimsg, line, err: string)
 			ic.lnick = lowercase(ic.nick);
 			mwriteall(sprint("%s you are now known as %s", stamp(), ic.nick));
 			writefile(eventfile, sprint("nick %s\n", ic.nick));
+
+			# find our user & hostname
+			err = writemsg(ref Timsg.Whois(ic.nick));
+			if(err != nil)
+				warn("writing whois request: "+err);
 		} else {
 			lnick := lowercase(mm.f.nick);
 			said := 0;
@@ -396,6 +402,11 @@ doirc(m: ref Rimsg, line, err: string)
 						srv.reply(ref Rmsg.Write (connectmsg.tag, len connectmsg.data));
 					connectmsg = nil;
 					changestate(Connected);
+
+					# find our user & hostname
+					err = writemsg(ref Timsg.Whois(ic.nick));
+					if(err != nil)
+						warn("writing whois request: "+err);
 				} else
 					warn("RPLwelcome while already connected");
 
@@ -451,6 +462,14 @@ doirc(m: ref Rimsg, line, err: string)
 					t = status;
 				mwrite(t.name, sprint("%s %s", stamp(), msg));
 				silent = 1;
+
+				# whois response on ourself.  gives approx how many of 512 bytes of irc message is taken by our 'from'.
+				if(int mm.cmd == irc->RPLwhoisuser && mm.where == ic.lnick && len mm.params >= 2) {
+					user := mm.params[0];
+					host := mm.params[1];
+					# ":nick!user@host "
+					imsgselflen = 1+len ic.lnick+1+len user+1+len host+1;
+				}
 
 			irc->RPLchannelmode =>	msg = "mode "+msg;
 			irc->RPLchannelmodechanged =>	msg = "mode changed "+msg;
@@ -1362,7 +1381,7 @@ mwriteall(text: string)
 writeraw(s: string): string
 {
 	d := array of byte s;
-	if(len d > Irc->Maximsglen)
+	if(len d+imsgselflen > Irc->Maximsglen)
 		return "line too long";
 	alt {
 	ircoutch <-= d =>
