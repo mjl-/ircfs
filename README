@@ -72,6 +72,8 @@ lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
 
 # todo
 
+- wm/irc: make startup much faster (i.e. open files concurrently, and show list of windows on left immediately)
+- ircfs: leaving/quiting users popup as new windows in wm/irc
 - ircfs: sometimes old lines are reinserted in the data file.  probably something wrong with accounting of the lines for the data file.
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
 - ircfs: fix ircfs-bug.txt

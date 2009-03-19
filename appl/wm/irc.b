@@ -30,6 +30,7 @@ datach: chan of (ref Win.Irc, list of string);
 eventch: chan of (ref Srv, list of string);
 usersch: chan of (ref Win.Irc, string);
 writererrch: chan of (ref Win.Irc, string);
+button1 := 0;
 
 # connection to an ircfs
 lastsrvid := 0;		# unique id's
@@ -113,8 +114,6 @@ tkcmds := array[] of {
 	"frame .m.text",
 	"frame .side",
 
-	"button .snarf -text snarf -command {send cmd snarf; focus .l}",
-	"button .paste -text paste -command {send cmd paste; focus .l}",
 	"button .plumb -text plumb -command {send cmd plumb; focus .l}",
 	"button .mark -text mark -command {send cmd mark; focus .l}",
 	"entry .find",
@@ -122,9 +121,13 @@ tkcmds := array[] of {
 	"bind .find <Control-n> {send cmd findnext}",
 	"bind .find <Control-p> {send cmd findprev}",
 	"bind .find <Control-t> {focus .l}",
+	"bind .find <ButtonPress-1> +{send cmd b1down}",
+	"bind .find <ButtonRelease-1> +{send cmd b1up}",
+	"bind .find <ButtonRelease-2> {send cmd cut .find}",
+	"bind .find <ButtonRelease-3> {send cmd paste .find}",
 	"button .prev -text << -command {send cmd findprev}",
 	"button .next -text >> -command {send cmd findnext}",
-	"pack .snarf .paste .plumb .mark -side left -in .m.ctl",
+	"pack .plumb .mark -side left -in .m.ctl",
 	"pack .next .prev -side right -in .m.ctl",
 	"pack .find -side right -in .m.ctl -fill x -expand 1",
 	"pack .m.ctl -in .m -fill x",
@@ -139,6 +142,10 @@ tkcmds := array[] of {
 	#"bind .l <Control-l> {send cmd clear}",
 	"bind .l <Control-f> {focus .find}",
 	"bind .l {<Key-\t>} {send cmd complete}",
+	"bind .l <ButtonPress-1> +{send cmd b1down}",
+	"bind .l <ButtonRelease-1> +{send cmd b1up}",
+	"bind .l <ButtonRelease-2> {send cmd cut .l}",
+	"bind .l <ButtonRelease-3> {send cmd paste .l}",
 
 	"listbox .targs -width 14w",
 	"pack .targs -side right -in .side -fill y -expand 1",
@@ -169,6 +176,11 @@ maketext(tkid: string)
 		sprint(".%s tag configure bold -underline 1", id),
 		sprint("bind .%s <Control-f> {focus .find}", id),
 		sprint("bind .%s <Control-t> {focus .l}", id),
+		sprint("bind .%s <ButtonPress-1> +{send cmd b1down}", id),
+		sprint("bind .%s <ButtonRelease-1> +{send cmd b1up}", id),
+		sprint("bind .%s <ButtonRelease-2> {send cmd textcut %s}", id, id),
+		sprint("bind .%s <ButtonRelease-3> {send cmd textpaste %s}", id, id),
+
 		sprint("scrollbar .%s-scroll -command {.%s yview}", id, id),
 		sprint("pack .%s-scroll -side left -fill y -in .m.%s", id, id),
 		sprint("pack .%s -side right -in .m.%s -fill both -expand 1", id, id),
@@ -289,7 +301,9 @@ init(ctxt: ref Draw->Context, args: list of string)
 
 dotk(cmd: string)
 {
-	(word, nil) := str->splitstrl(cmd, " ");
+	(word, rem) := str->splitstrl(cmd, " ");
+	if(rem != nil)
+		rem = rem[1:];
 	say(sprint("tk ui cmd: %q", word));
 
 	case word {
@@ -318,35 +332,44 @@ dotk(cmd: string)
 		}
 		tkcmd("update");
 
-	"snarf" =>
-		s := selection();
-		if(s != nil)
-			writefile("/dev/snarf", s);
+	"b1down" =>
+		button1 = 1;
+	"b1up" =>
+		button1 = 0;
+
+	"cut" =>
+		if(button1)
+			tkcut(rem);
 
 	"paste" =>
-		(s, nil) := readfile("/dev/snarf");
-		if(str->drop(s, "^\n") == nil) {
-			tkcmd(".l insert insert '"+s);
-			tkcmd("update");
-			return;
+		if(button1)
+			tkpaste(rem);
+
+	"textcut" =>
+		if(button1) {
+			s := selection(rem);
+			if(s != nil) {
+				tkclient->snarfput(s);
+				tkcmd(sprint(".%s delete sel.first sel.last; update", rem));
+			}
 		}
-		pick win := curwin {
-		Irc =>
-			err := win.writetext(s);
-			if(err != nil)
-				tkwarn("writing: "+err);
-		Status =>
-			tkwarn("cannot paste to status window");
+
+	"textpaste" =>
+		if(button1) {
+			s := tkclient->snarfget();
+			tkcmd(sprint(".%s delete sel.first sel.last", rem)); # fails when nothing selected
+			tkcmd(sprint(".%s insert insert %s; .%s tag add sel insert-%dchars insert; update", rem, tk->quote(s), rem, len s));
 		}
 
 	"plumb" =>
-		s := selection();
+		s := selection(curwin.tkid);
 		if(s != nil)
 			curwin.plumbsend(s, "name", curwin.name);
 
 	"mark" =>
 		for(i := 0; i < len windows; i++)
 			windows[i].setstate(None, 1);
+		fixwinsel(curwin.listindex);
 
 	"nextwin" =>
 		showwindow(windows[(curwin.listindex+1)%len windows]);
@@ -471,6 +494,7 @@ dodata(win: ref Win.Irc, lines: list of string)
 		}
 
 		hl := matches(win.srv.lnick, irc->lowercase(m));
+		havehl := hl != nil;
 		for(; hl != nil; hl = tl hl) {
 			(s, e) := *hd hl;
 			tkcmd(sprint(".%s tag add hl {end -1c linestart +%dc} {end -1 linestart +%dc}", win.tkid, s, e));
@@ -480,7 +504,7 @@ dodata(win: ref Win.Irc, lines: list of string)
 		# during normal operation we typically get one line per read.
 		# this is a simple heuristic to start without all windows highlighted...
 		if(nlines == 1 && win != curwin && !nostatechange) {
-			if(state != None && state != Meta && (!win.ischan || hl != nil))
+			if(state == Data && (!win.ischan || havehl))
 				state = Highlight;
 			win.setstate(state, 1);
 		}
@@ -967,6 +991,10 @@ showwindow(w: ref Win)
 	curwin = w;
 }
 
+fixwinsel(i: int)
+{
+	tkcmd(sprint(".targs selection set %d; .targs see %d; update", i, i));
+}
 
 fixwindows()
 {
@@ -998,7 +1026,7 @@ fixwindows()
 
 	if(useindex < 0)
 		useindex = 0;
-	tkcmd(sprint(".targs selection set %d; .targs see %d; update", useindex, useindex));
+	fixwinsel(useindex);
 	showwindow(windows[useindex]);
 }
 
@@ -1025,9 +1053,9 @@ delwindow(w: ref Win.Irc)
 	fixwindows();
 }
 
-selection(): string
+selection(w: string): string
 {
-	return tkget(sprint(".%s get sel.first sel.last", curwin.tkid));
+	return tkget(sprint(".%s get sel.first sel.last", w));
 }
 
 tkwinwrite(w: ref Win, s, tag: string)
@@ -1057,14 +1085,6 @@ tkstatus(s: string)
 	tkwinwrite(curwin, s, "status");
 }
 
-writefile(p: string, s: string): string
-{
-	fd := sys->open(p, Sys->OWRITE);
-	if(fd == nil || sys->write(fd, d := array of byte s, len d) != len d)
-		return sprint("open/write: %r");
-	return nil;
-}
-
 readfile(p: string): (string, string)
 {
 	fd := sys->open(p, Sys->OREAD);
@@ -1085,6 +1105,32 @@ tkcmd(s: string): string
 tkget(s: string): string
 {
 	return tk->cmd(t, s);
+}
+
+tkcut(w: string)
+{
+	if(!int tkcmd(w+" selection present"))
+		return;
+
+	start := int tkcmd(w+" index sel.first");
+	end := int tkcmd(w+" index sel.last");
+	v := tkcmd(w+" get");
+	if(start >= 0 && start < len v && end >= 0 && end <= len v && start < end) {
+		tkclient->snarfput(v[start:end]);
+		tkcmd(sprint("%s delete sel.first sel.last; %s selection clear; update", w, w));
+	}
+}
+
+tkpaste(w: string)
+{
+	new := tkclient->snarfget();
+	start := int tkcmd(w+" index insert");
+	if(int tkcmd(w+" selection present")) {
+		start = int tkcmd(w+" index sel.first");
+		end := int tkcmd(w+" index sel.last");
+		tkcmd(sprint("%s delete %d %d", w, start, end));
+	}
+	tkcmd(sprint("%s insert %d %s; %s selection range %d %d; update", w, start, tk->quote(new), w, start, start+len new));
 }
 
 substr(sub, s: string): int

@@ -26,10 +26,11 @@ in ircfs, and corresponds to a
 .I window
 in wm/irc.
 Below this main area, an input entry allows new text and commands to be sent.
-Atop the main window are buttons to snarf, paste or plumb the current text selection,
+Atop the main window are a button to plumb the current text selection,
 a button to mark all windows as seen (clearing their activity status),
 and a search input entry and buttons for searching the previous and next match.
 Left of these elements is a listing with names of opened irc directories.  Selecting one displays it on the main area.
+Text in the input entries and in the main text windows can be cut & pasted with mouse chording.
 
 .PP
 At startup, the
@@ -178,8 +179,6 @@ To start and mount a new ircfs and use it from wm/irc:
 .SH SEE ALSO
 .IR ircfs (4).
 .SH BUGS
-Plumbing and snarf & paste need buttons.  Acme chording, such as implemented in
-.IR wm/sh (1),
-would be much better.
+Plumbing requires button.
 .br
 Ircfs has no way of letting wm/irc know which data has been read before, e.g. by a recent invocation of wm/irc.  At startup, wm/irc is likely to generate status changes (e.g. highlights) for events that have already been seen by the user.
