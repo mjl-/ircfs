@@ -297,28 +297,29 @@ doirc(m: ref Rimsg, line, err: string)
 			err = writemsg(ref Timsg.Whois(ic.nick));
 			if(err != nil)
 				warn("writing whois request: "+err);
-		} else {
-			lnick := lowercase(mm.f.nick);
-			said := 0;
-			for(i := 0; i < len targets; i++) {
-				t := targets[i];
-				if(t.dead)
-					continue;
-				if(hasnick(t.joined, lnick) || t.lname == lnick) {
-					t.joined = delnick(t.joined, lnick);
-					t.joined = addnick(t.joined, mm.name);
-					writefile(t.users, sprint("+%s\n-%s\n", mm.name, mm.f.nick));
-					mwrite(t.name, sprint("%s %s is now known as %s", stamp(), mm.f.nick, mm.name));
-					said++;
-				}
-				if(t.lname == lnick) {
-					t.name = mm.name;
-					t.lname = lowercase(t.name);
-				}
-			}
-			if(!said)
-				mwrite(mm.name, sprint("%s %s is now known as %s", stamp(), mm.f.nick, mm.name));
+			return;
 		}
+
+		lnick := lowercase(mm.f.nick);
+		said := 0;
+		for(i := 0; i < len targets; i++) {
+			t := targets[i];
+			if(t.dead)
+				continue;
+			if(hasnick(t.joined, lnick) || t.lname == lnick) {
+				t.joined = delnick(t.joined, lnick);
+				t.joined = addnick(t.joined, mm.name);
+				writefile(t.users, sprint("+%s\n-%s\n", mm.name, mm.f.nick));
+				mwrite(t.name, sprint("%s %s is now known as %s", stamp(), mm.f.nick, mm.name));
+				said++;
+			}
+			if(t.lname == lnick) {
+				t.name = mm.name;
+				t.lname = lowercase(t.name);
+			}
+		}
+		if(said == 0)
+			mwrite(mm.name, sprint("%s %s is now known as %s", stamp(), mm.f.nick, mm.name));
 	Mode =>
 		modes := "";
 		for(l := mm.modes; l != nil; l = tl l) {
@@ -336,24 +337,25 @@ doirc(m: ref Rimsg, line, err: string)
 		if(ic.fromself(mm.f)) {
 			mwriteall(sprint("%s you have quit from irc: %s", stamp(), mm.m));
 			disconnect();
-		} else {
-			lnick := lowercase(mm.f.nick);
-			said := 0;
-			for(i := 0; i < len targets; i++) {
-				t := targets[i];
-				if(t.dead)
-					continue;
-				t.newjoined = delnick(t.newjoined, lnick);
-				if(hasnick(t.joined, lnick) || t.lname == lnick) {
-					t.joined = delnick(t.joined, lnick);
-					writefile(t.users, sprint("-%s\n", mm.f.nick));
-					mwrite(t.name, sprint("%s %s (%s) has quit: %s", stamp(), mm.f.nick, mm.f.text(), mm.m));
-					said++;
-				}
-			}
-			if(!said)
-				mwrite(mm.f.nick, sprint("%s %s (%s) has quit: %s", stamp(), mm.f.nick, mm.f.text(), mm.m));
+			return;
 		}
+
+		lnick := lowercase(mm.f.nick);
+		said := 0;
+		for(i := 0; i < len targets; i++) {
+			t := targets[i];
+			if(t.dead)
+				continue;
+			t.newjoined = delnick(t.newjoined, lnick);
+			if(hasnick(t.joined, lnick) || t.lname == lnick) {
+				t.joined = delnick(t.joined, lnick);
+				writefile(t.users, sprint("-%s\n", mm.f.nick));
+				mwrite(t.name, sprint("%s %s (%s) has quit: %s", stamp(), mm.f.nick, mm.f.text(), mm.m));
+				said++;
+			}
+		}
+		if(said == 0)
+			mwrite(mm.f.nick, sprint("%s %s (%s) has quit: %s", stamp(), mm.f.nick, mm.f.text(), mm.m));
 	Error =>
 		mwriteall(sprint("%s error: %s", stamp(), mm.m));
 		disconnect();
@@ -731,15 +733,15 @@ again:
 				continue again;
 			}
 			if(int op.path == Qroot) {
-				n := Qnick+1-Qrootctl;
+				nfixed: con Qnick+1-Qrootctl;
 				have := 0;
-				for(i := 0; have < op.count && op.offset+i < len targets+n; i++)
-					case Qrootctl+i {
-					Qrootctl to Qnick =>
+				for(i := op.offset; have < op.count && i < nfixed+len targets; i++)
+					case i {
+					0 to nfixed-1 =>
 						op.reply <-= (dir(Qrootctl+i, starttime), nil);
 						have++;
 					* =>
-						off := op.offset+i-n;
+						off := i-nfixed;
 						if(!targets[off].dead) {
 							op.reply <-= (dir(Qdir|(targets[off].id<<8), targets[off].mtime), nil);
 							have++;
