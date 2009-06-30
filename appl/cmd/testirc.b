@@ -6,8 +6,6 @@ include "sys.m";
 include "draw.m";
 include "arg.m";
 include "bufio.m";
-	bufio: Bufio;
-	Iobuf: import bufio;
 include "irc.m";
 	irc: Irc;
 	Ircc, Timsg, Rimsg, From: import irc;
@@ -23,9 +21,8 @@ init(nil: ref Draw->Context, args: list of string)
 {
 	sys = load Sys Sys->PATH;
 	arg := load Arg Arg->PATH;
-	bufio = load Bufio Bufio->PATH;
 	irc = load Irc Irc->PATH;
-	irc->init(bufio);
+	irc->init();
 
 	arg->init(args);
 	arg->setusage(arg->progname()+" [-d] [-a addr]");
@@ -45,7 +42,7 @@ init(nil: ref Draw->Context, args: list of string)
 		fail(sprint("dial %s: %r", addr));
 	say("connected");
 
-	(ic, err) := Ircc.new(conn.dfd, addr, "itestirc", "itestirc");
+	(ic, err) := Ircc.new(conn.dfd, addr, "itestirc", "itestirc", nil);
 	if(err != nil)
 		fail(err);
 	say("new ircc");

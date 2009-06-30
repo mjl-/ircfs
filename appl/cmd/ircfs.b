@@ -39,7 +39,7 @@ Disconnected, Dialing, Connecting, Connected: con iota;
 Dflag, dflag, tflag: int;
 logpath: string;
 netname: string;
-lastnick, lastaddr, lastfromhost: string;
+lastnick, lastpass, lastaddr, lastfromhost: string;
 state := Disconnected;
 connectmsg: ref Tmsg.Write;  # only non-nil when connecting:  the ctl write "connect"
 starttime: int;
@@ -130,14 +130,15 @@ init(nil: ref Draw->Context, args: list of string)
 	daytime = load Daytime Daytime->PATH;
 	lists = load Lists Lists->PATH;
 	irc = load Irc Irc->PATH;
-	irc->init(bufio);
+	irc->init();
 
 	arg->init(args);
-	arg->setusage(arg->progname()+" [-Ddt] [-a addr] [-f fromhost] [-n nick] [-l logpath] netname");
+	arg->setusage(arg->progname()+" [-Ddt] [-a addr] [-f fromhost] [-n nick] [-p password] [-l logpath] netname");
 	while((c := arg->opt()) != 0)
 		case c {
 		'a' =>	lastaddr = arg->earg();
 		'n' =>	lastnick = arg->earg();
+		'p' =>	lastpass = arg->earg();
 		'f' =>	lastfromhost = arg->earg();
 		'l' =>	logpath = arg->earg();
 			if(logpath != nil && logpath[len logpath-1] != '/')
@@ -800,12 +801,15 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		(cargs, nil) := tokens(rem, " ", -1);
 		case cmd {
 		"connect" =>
-			if(len cargs != 2 && len cargs != 3)
-				return replyerror(m, "bad parameters, need address, nick and optionally fromhost");
+			if(len cargs != 2 && len cargs != 3 && len cargs != 4)
+				return replyerror(m, "bad parameters, need address, nick and optionally password and fromhost");
 			(lastaddr, lastnick) = (hd cargs, hd tl cargs);
 			lastfromhost = nil;
-			if(len cargs == 3)
-				lastfromhost = hd tl tl cargs;
+			lastpass = nil;
+			if(len cargs >= 3)
+				lastpass = hd tl tl cargs;
+			if(len cargs >= 4)
+				lastfromhost = hd tl tl tl cargs;
 
 		"reconnect" =>
 			if(len cargs != 0)
@@ -821,7 +825,7 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		ircerrch = chan of string;
 
 		connectmsg = m;
-		spawn ircreader(lastaddr, lastfromhost, lastnick);
+		spawn ircreader(lastaddr, lastfromhost, lastnick, lastpass);
 		return;
 
 	"join" =>
@@ -869,6 +873,12 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		err = writemsg(ref Timsg.Notice(t.name, rem));
 		if(err == nil)
 			mwrite(t.name, sprint("%s %8s: %s", stamp(), ic.nick, rem));
+
+	"msg" =>
+		(name, s) := tokens(rem, " ", 1);
+		err = writemsg(ref Timsg.Privmsg(hd name, s));
+		if(err == nil)
+			mwrite(hd name, sprint("%s %8s: %s", stamp(), ic.nick, s));
 
 	"invite" =>
 		(iargs, nil) := tokens(rem, " ", -1);
@@ -1068,7 +1078,7 @@ dialfancy(addr: string, fromhost: string): (ref (ref Sys->FD, ref Sys->FD), stri
 	return (ref (cfd, dfd), nil);
 }
 
-ircreader(addr, fromhost, newnick: string)
+ircreader(addr, fromhost, newnick, newpass: string)
 {
 	dfd, cfd: ref Sys->FD;
 
@@ -1094,7 +1104,7 @@ ircreader(addr, fromhost, newnick: string)
 	say("connected");
 
 	err: string;
-	(ic, err) = Ircc.new(dfd, addr, newnick, newnick);
+	(ic, err) = Ircc.new(dfd, addr, newnick, newnick, newpass);
 	if(err != nil) {
 		dialerrch <-= err;
 		return;

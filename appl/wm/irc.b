@@ -204,7 +204,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 	tk = load Tk Tk->PATH;
 	tkclient = load Tkclient Tkclient->PATH;
 	irc = load Irc Irc->PATH;
-	irc->init(bufio);
+	irc->init();
 
 	arg->init(args);
 	arg->setusage(arg->progname()+" [-ds] [-g width height] [-h histsize] [-r hlregex] [path ...]");
@@ -577,7 +577,7 @@ douser(w: ref Win.Irc, s: string)
 			tkstatuswarn("empty user line");
 			continue;
 		}
-		say(sprint("userline=%q", l));
+		#say(sprint("userline=%q", l));
 		user := l[1:];
 		case l[0] {
 		'+' =>	w.users = user::w.users;

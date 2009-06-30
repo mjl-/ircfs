@@ -18,10 +18,11 @@ desttypes := array[] of {
 };
 
 
-init(b: Bufio)
+init()
 {
 	sys = load Sys Sys->PATH;
-	bufio = b;
+	bufio = load Bufio Bufio->PATH;
+	bufio->open("/dev/null", Bufio->OREAD);  # hack to get bufio loaded correctly
 	str = load String String->PATH;
 }
 
@@ -66,16 +67,17 @@ rev(l: list of string): list of string
 	return r;
 }
 
-Ircc.new(fd: ref Sys->FD, addr, nick, name: string): (ref Ircc, string)
+Ircc.new(fd: ref Sys->FD, addr, nick, name, pass: string): (ref Ircc, string)
 {
 	b := bufio->fopen(fd, Bufio->OREAD);
 	if(b == nil)
 		return (nil, sprint("bufio fopen: %r"));
 
 	c := ref Ircc(fd, b, addr, nick, lowercase(nick));
-	err := c.writemsg(ref Timsg.Nick(nick));
-	if(err == nil)
-		err = c.writemsg(ref Timsg.User(name));
+	if(pass != nil)
+		err := c.writemsg(ref Timsg.Pass(pass));
+	if(err == nil) err = c.writemsg(ref Timsg.Nick(nick));
+	if(err == nil) err = c.writemsg(ref Timsg.User(name));
 	if(err != nil)
 		return (nil, err);
 	return (c, nil);
@@ -107,6 +109,7 @@ Timsg.pack(m: self ref Timsg): string
 {
 	s := "";
 	pick mm := m {
+	Pass =>	s += sprint("PASS %s", mm.pass);
 	Nick =>	s += sprint("NICK %s", mm.name);
 	User =>	s += sprint("USER none 0 * :%s", mm.name);
 	Whois =>	s += sprint("WHOIS %s", mm.name);
@@ -138,6 +141,7 @@ Timsg.text(m: self ref Timsg): string
 	s := "";
 	s += "Timsg.";
 	pick mm := m {
+	Pass =>		s += sprint("Pass(%q)", mm.pass);
 	Nick =>		s += sprint("Nick(%q)", mm.name);
 	User =>		s += sprint("User(%q)", mm.name);
 	Whois =>	s += sprint("Whois(%q)", mm.name);

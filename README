@@ -1,3 +1,8 @@
+# status
+
+has been in use for quite some time.
+
+
 # summary
 
 this package contains an irc file system (ircfs), an irc library
@@ -18,6 +23,17 @@ installation mkconfig (symlink/bind it).  now type "mk install" to
 compile and install.  NOTE: just "mk" does not work, since the
 module files (*.m) will be missing and compilation of source files
 (*.b) will fail.
+
+
+# documentation
+
+see the manual pages for details, ircfs(4) and wm-irc(1).
+
+
+# licence & author
+
+this code is in the public domain.  the code is written by mechiel
+lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
 
 
 # example
@@ -59,29 +75,17 @@ or do the getauthinfo again.  finally, replace the -A in
 the mount and styxlisten calls earlier by "-k $home/keyring/ircfs".
 
 
-# documentation
-
-see the manual pages for details, ircfs(4) and wm-irc(1).
-
-
-# licence & author
-
-this code is in the public domain.  the code is written by mechiel
-lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
-
-
 # todo
 
+- document ircfs in more detail.  e.g. the parameters to the ctl commands.
 - wm/irc: make startup much faster (i.e. open files concurrently, and show list of windows on left immediately)
-- wm/irc: acme-like chording doesn't work when selecting text by double-click.  fix that.
+- wm/irc: open servers in background?  could introduce races
 - ircfs: sometimes old lines are reinserted in the data file.  probably something wrong with accounting of the lines for the data file.
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
-- ircfs: fix ircfs-bug.txt
-- wm/irc: somehow show in interface that remote connection is not responding?
 - ircfs: don't hang while connecting.  especially when nick is taken and connection lingers.  that will block forever.
-- ircfs: password in connect message.  idea from sqweek
-- ircfs: there should be a better way to join & write to a channel.  e.g. for freenode, identifying against nickserv.  from sqweek.
-- wm/irc: open servers in background?  could introduce races
+- wm/irc: somehow show in interface that remote connection is not responding?
+- wm/irc: acme-like chording doesn't work when selecting text by double-click.  fix that.
+- ircfs: fix ircfs-bug.txt
 
 - ircfs: when people come online (in channel) and have a window, put a meta-message in the window?  idea from sqweek
 - read irc rfc's, try on many networks/channels

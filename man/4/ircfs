@@ -15,6 +15,9 @@ ircfs \- irc file server
 .B -n
 .I nick
 ] [
+.B -p
+.I password
+] [
 .B -l
 .I logpath
 ]

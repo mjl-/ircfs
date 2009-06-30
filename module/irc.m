@@ -1,7 +1,7 @@
 Irc: module {
 	PATH:	con "/dis/lib/irc.dis";
 
-	init:	fn(b: Bufio);
+	init:	fn();
 
 	RPLwelcome:	con 1;
 	RPLaway:	con 301;
@@ -28,11 +28,11 @@ Irc: module {
 
 	Ircc: adt {
 		fd:	ref Sys->FD;
-		b:	ref Iobuf;
+		b:	ref Bufio->Iobuf;
 		addr:	string;
 		nick, lnick:	string;
 
-		new:	fn(fd: ref Sys->FD, addr: string, nick, name: string): (ref Ircc, string);
+		new:	fn(fd: ref Sys->FD, addr: string, nick, name, pass: string): (ref Ircc, string);
 		readmsg:	fn(c: self ref Ircc): (ref Rimsg, string, string);
 		writemsg:	fn(c: self ref Ircc, m: ref Timsg): string;
 		fromself:	fn(c: self ref Ircc, f: ref From): int;
@@ -46,6 +46,8 @@ Irc: module {
 
 	Timsg: adt {
 		pick {
+		Pass =>
+			pass: string;
 		Nick or User or Names =>
 			name: string;
 		Privmsg or Notice =>
