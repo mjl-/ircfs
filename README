@@ -50,9 +50,9 @@ to set this up, first run a signer:
 	svc/auth
 	auth/changelogin yourusername	# enter password
 
-make the keyring/ircfs file:
+make the $home/keyring/ircfs file:
 
-	getauthinfo $home/keyring/ircfs	# enter signer address and password
+	getauthinfo ircfs	# enter signer address and password
 
 now either copy the ircfs to the styx client and server,
 or do the getauthinfo again.  finally, replace the -A in
@@ -73,15 +73,16 @@ lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
 # todo
 
 - wm/irc: make startup much faster (i.e. open files concurrently, and show list of windows on left immediately)
-- ircfs: leaving/quiting users popup as new windows in wm/irc
+- wm/irc: acme-like chording doesn't work when selecting text by double-click.  fix that.
 - ircfs: sometimes old lines are reinserted in the data file.  probably something wrong with accounting of the lines for the data file.
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
 - ircfs: fix ircfs-bug.txt
 - wm/irc: somehow show in interface that remote connection is not responding?
-
-- wm/irc: fix snarf/paste, sometimes it doesn't work, trying a second time makes it work.  not sure what to do about it...
-- read irc rfc's, try on many networks/channels
-- find ways to crash ircfs and wm/irc, and fix it
-- ircfs: unify reading/writing irc messages in /appl/lib/irc.b?  messages are almost bidirectional?
-- ircfs: perhaps add the more obscure commands: info, ison, links, list, lusers, motd, note, ping, servlist, squery?, stats, time, trace, version, userhost, whowas
+- ircfs: don't hang while connecting.  especially when nick is taken and connection lingers.  that will block forever.
+- ircfs: password in connect message.  idea from sqweek
+- ircfs: there should be a better way to join & write to a channel.  e.g. for freenode, identifying against nickserv.  from sqweek.
 - wm/irc: open servers in background?  could introduce races
+
+- ircfs: when people come online (in channel) and have a window, put a meta-message in the window?  idea from sqweek
+- read irc rfc's, try on many networks/channels
+- ircfs: perhaps add the more obscure commands: info, ison, links, list, lusers, motd, note, servlist, squery?, stats, time, trace, version, userhost, whowas

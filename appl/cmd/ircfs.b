@@ -204,7 +204,7 @@ done:
 
 	(rpid, wpid) := <-dialch =>
 		say(sprint("dialch, pids %d %d", rpid, wpid));
-		status.write("# remote dialed, connecting...");
+		status.write("# remote dialed, connecting...\n");
 		changestate(Connecting);
 		readerpid = rpid;
 		writerpid = wpid;
@@ -307,6 +307,8 @@ doirc(m: ref Rimsg, line, err: string)
 			if(t.dead)
 				continue;
 			if(hasnick(t.joined, lnick) || t.lname == lnick) {
+				t.newjoined = delnick(t.newjoined, lnick);
+				t.newjoined = addnick(t.newjoined, mm.name);
 				t.joined = delnick(t.joined, lnick);
 				t.joined = addnick(t.joined, mm.name);
 				writefile(t.users, sprint("+%s\n-%s\n", mm.name, mm.f.nick));
@@ -364,13 +366,14 @@ doirc(m: ref Rimsg, line, err: string)
 	Join =>
 		t := gettarget(mm.where);
 		t.joined = addnick(t.joined, mm.f.nick);
+		t.newjoined = addnick(t.newjoined, mm.f.nick);
 		writefile(t.users, sprint("+%s\n", mm.f.nick));
 		mwrite(mm.where, sprint("%s %s (%s) has joined", stamp(), mm.f.nick, mm.f.text()));
 	Part =>
 		t := gettarget(mm.where);
 		lnick := lowercase(mm.f.nick);
-		t.newjoined = delnick(t.joined, lnick);
 		t.joined = delnick(t.joined, lnick);
+		t.newjoined = delnick(t.newjoined, lnick);
 		writefile(t.users, sprint("-%s\n", mm.f.nick));
 		if(ic.fromself(mm.f)) {
 			mwrite(mm.where, sprint("%s you (%s) have left %s", stamp(), mm.f.text(), mm.where));
@@ -441,7 +444,6 @@ doirc(m: ref Rimsg, line, err: string)
 				t.joined = t.newjoined;
 				t.newjoined = array[0] of string;
 				msg = "end users";
-
 
 			irc->RPLaway =>	
 				t := findtargetname(mm.where);
