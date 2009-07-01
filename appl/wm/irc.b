@@ -53,6 +53,8 @@ Srv: adt {
 	wins:	cyclic list of ref Win.Irc;		# includes win0
 	unopen:	list of ref (string, int);	# name, id
 	dead:	int;
+	writec:	chan of (ref Win.Irc, ref Sys->FD, string);
+	writepid:	int;
 
 	# we keep reading the pong file, if no data comes in, ircfs isn't responding.
 	# if nopong comes in, the server isn't responding.
@@ -85,9 +87,8 @@ Win: adt {
 		srv:	ref Srv;
 		id:	int;
 		ctlfd, datafd, usersfd:	ref Sys->FD;
-		pids:	list of int;	# for reader, writer, usersreader
+		pids:	list of int;	# for reader, usersreader
 		ischan:	int;
-		writec:	chan of string;
 		users:	list of string;	# with case
 	Status =>
 	}
@@ -96,7 +97,7 @@ Win: adt {
 	writetext:	fn(w: self ref Win, s: string): string;
 	addline:	fn(w: self ref Win, l: string, tag: string);
 	close:	fn(w: self ref Win);
-	ctlwrite:	fn(w: self ref Win, s: string): string;
+	writectl:	fn(w: self ref Win, s: string): string;
 	setstate:	fn(w: self ref Win, state, draw: int);
 	scroll:		fn(w: self ref Win);
 	scrolltext:	fn(w: self ref Win, seetop, seebottom: int);
@@ -324,6 +325,8 @@ init(ctxt: ref Draw->Context, args: list of string)
 		srv.eventpid = <-pidc;
 		spawn pongreader(pidc, srv);
 		srv.pongpid = <-pidc;
+		spawn writer(pidc, srv);
+		srv.writepid = <-pidc;
 		servers = srv::servers;
 
 	(show, (win, err)) := <-newwinc =>
@@ -336,9 +339,8 @@ init(ctxt: ref Draw->Context, args: list of string)
 		win.setstate(None, 0);
 		pidc := chan of int;
 		spawn reader(pidc, win.datafd, win);
-		spawn writer(pidc, win.datafd, win);
 		spawn usersreader(pidc, win.usersfd, win);
-		win.pids = <-pidc::<-pidc::<-pidc::win.pids;
+		win.pids = <-pidc::<-pidc::win.pids;
 		addwindow(win);
 		if(show)
 			showwindow(win);
@@ -828,7 +830,7 @@ command(line: string)
 				tkwarn(sprint("%q: %r", (hd l).path));
 
 	* =>
-		err = curwin.ctlwrite(line);
+		err = curwin.writectl(line);
 	}
 	if(err != nil)
 		tkwarn(err);
@@ -848,7 +850,7 @@ Srv.init(srvid: int, path: string): (ref Srv, string)
 	if(pongfd == nil)
 		return (nil, sprint("open: %r"));
 
-	srv := ref Srv(srvid, path, ctlfd, pongfd, eventb, nil, nil, 0, nil, nil, nil, 0, -1, daytime->now(), 0, 0, -1);
+	srv := ref Srv(srvid, path, ctlfd, pongfd, eventb, nil, nil, 0, nil, nil, nil, 0, chan[8] of (ref Win.Irc, ref Sys->FD, string), -1, -1, daytime->now(), 0, 0, -1);
 	return (srv, nil);
 }
 
@@ -912,6 +914,19 @@ pongreader(pidc: chan of int, srv: ref Srv)
 	}
 }
 
+writer(pidc: chan of int, srv: ref Srv)
+{
+	pidc <-= pid();
+	for(;;) {
+		(w, fd, s) := <-srv.writec;
+		if(s == nil)
+			break;
+		n := sys->write(fd, d := array of byte s, len d);
+		if(n != len d)
+			writererrc <-= (w, sys->sprint("%r"));
+	}
+}
+
 
 Win.init(srv: ref Srv, id: int, name: string): (ref Win.Irc, string)
 {
@@ -926,6 +941,9 @@ Win.init(srv: ref Srv, id: int, name: string): (ref Win.Irc, string)
 		if(sys->fwstat(datafd, dir) < 0)
 			tkstatuswarn(sprint("set history size: %r"));
 	}
+	ctlfd := sys->open(p+"/ctl", Sys->OWRITE);
+	if(ctlfd == nil)
+		return (nil, sprint("open: %r"));
 
 	if(name == nil) {
 		err: string;
@@ -938,7 +956,7 @@ Win.init(srv: ref Srv, id: int, name: string): (ref Win.Irc, string)
 		return (nil, sprint("open: %r"));
 
 	tkid := sprint("t-%d-%d", srv.id, id);
-	win := ref Win.Irc(name, tkid, -1, 0, 0, nil, None, srv, id, nil, datafd, usersfd, nil, irc->ischannel(name), chan[8] of string, nil);
+	win := ref Win.Irc(name, tkid, -1, 0, 0, nil, None, srv, id, ctlfd, datafd, usersfd, nil, irc->ischannel(name), nil);
 	return (win, nil);
 }
 
@@ -961,19 +979,6 @@ reader(pidc: chan of int, fd: ref Sys->FD, win: ref Win.Irc)
 	}
 }
 
-writer(pidc: chan of int, fd: ref Sys->FD, w: ref Win.Irc)
-{
-	pidc <-= pid();
-	for(;;) {
-		l := <-w.writec;
-		if(l == nil)
-			break;
-		n := sys->write(fd, d := array of byte l, len d);
-		if(n != len d)
-			writererrc <-= (w, sys->sprint("%r"));
-	}
-}
-
 usersreader(pidc: chan of int, fd: ref Sys->FD, w: ref Win.Irc)
 {
 	pidc <-= pid();
@@ -990,16 +995,29 @@ usersreader(pidc: chan of int, fd: ref Sys->FD, w: ref Win.Irc)
 	}
 }
 
-Win.writetext(w: self ref Win, s: string): string
+writefd(w: ref Win.Irc, fd: ref Sys->FD, s: string): string
 {
-	pick ircwin := w {
-	Irc =>
-		alt {
-		ircwin.writec <-= s =>	return nil;
-		* =>			return "too many writes queued, discarding line";
-		}
-	Status =>
-		return "bug: no writes to status window";
+	alt {
+	w.srv.writec <-= (w, fd, s) =>
+		return nil;
+	* =>
+		return "too many writes queued, discarding line";
+	}
+}
+
+Win.writetext(ww: self ref Win, s: string): string
+{
+	pick w := ww {
+	Irc =>		return writefd(w, w.datafd, s);
+	Status =>	return "bug: no data for status window";
+	}
+}
+
+Win.writectl(ww: self ref Win, s: string): string
+{
+	pick w := ww {
+	Irc =>		return writefd(w, w.ctlfd, s);
+	Status =>	return "bug: no ctl's for status window";
 	}
 }
 
@@ -1022,20 +1040,6 @@ Win.close(w: self ref Win)
 			kill(hd pids);
 	}
 	tkcmd(sprint("destroy .%s; destroy .m.%s; destroy .%s-scroll", w.tkid, w.tkid, w.tkid));
-}
-
-Win.ctlwrite(win: self ref Win, s: string): string
-{
-	pick w := win {
-	Irc =>
-		if(w.ctlfd == nil)
-			w.ctlfd = sys->open(sprint("%s/%d/ctl", w.srv.path, w.id), Sys->OWRITE);
-		if(w.ctlfd == nil || sys->fprint(w.ctlfd, "%s", s) < 0)
-			return sprint("%r");
-		return nil;
-	Status =>
-		return "bug: no ctl for status window";
-	}
 }
 
 Win.setstate(w: self ref Win, state, draw: int)

@@ -943,7 +943,7 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		(name, s) := tokens(rem, " ", 1);
 		err = writemsg(ref Timsg.Privmsg(hd name, s));
 		if(err == nil)
-			mwrite(hd name, sprint("%s %8s: %s", stamp(), ic.nick, s));
+			sdwrite(hd name, sprint("%s %8s: %s", stamp(), ic.nick, s));
 
 	"invite" =>
 		(iargs, nil) := tokens(rem, " ", -1);

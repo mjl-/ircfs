@@ -77,14 +77,11 @@ the mount and styxlisten calls earlier by "-k $home/keyring/ircfs".
 
 # todo
 
-- document ircfs in more detail.  e.g. the parameters to the ctl commands.
-- wm/irc: make adding a window faster, so startup with many windows becomes faster.
-- wm/irc: don't hang when writes don't return.  have to keep track of the data channel where we wrote.
 - ircfs: sometimes old lines are reinserted in the data file.  probably something wrong with accounting of the lines for the data file.
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
-- ircfs: don't hang while connecting.  especially when nick is taken and connection lingers.  that will block forever.
 - wm/irc: acme-like chording doesn't work when selecting text by double-click.  fix that.
 - ircfs: fix ircfs-bug.txt
+- wm/irc: make adding a window faster, so startup with many windows becomes faster.
 - wm/irc: a ridiculous amount of cpu is used when moving the mouse over the irc window.
 
 - ircfs: when people come online (in channel) and have a window, put a meta-message in the window?  idea from sqweek
