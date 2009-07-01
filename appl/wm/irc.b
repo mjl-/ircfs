@@ -10,6 +10,8 @@ include "arg.m";
 include "bufio.m";
 	bufio: Bufio;
 	Iobuf: import bufio;
+include "lists.m";
+	lists: Lists;
 include "regex.m";
 	regex: Regex;
 	Re: import Regex;
@@ -26,28 +28,31 @@ include "keyboard.m";
 
 Windowlinesmax: con 8*1024;
 
-datach: chan of (ref Win.Irc, list of string);
-eventch: chan of (ref Srv, list of string);
-usersch: chan of (ref Win.Irc, string);
-writererrch: chan of (ref Win.Irc, string);
+datac: chan of (ref Win.Irc, list of string);
+eventc: chan of (ref Srv, list of string);
+usersc: chan of (ref Win.Irc, string);
+newsrvc: chan of (ref Srv, string);
+newwinc: chan of (int, (ref Win.Irc, string));
+writererrc: chan of (ref Win.Irc, string);
 button1 := 0;
 
 # connection to an ircfs
 lastsrvid := 0;		# unique id's
 Srv: adt {
-	id:	string;		# lastsrvid
+	id:	int;		# lastsrvid
 	path:	string;	
 	ctlfd:	ref Sys->FD;
 	nick, lnick:	string;	# our name and lowercase
 	eventpid:	int;
 	win0:	cyclic ref Win.Irc;
 	wins:	cyclic list of ref Win.Irc;		# includes win0
-	unopen:	list of ref (string, string);	# name, id
+	unopen:	list of ref (string, int);	# name, id
+	dead:	int;
 
-	init:	fn(path: string): (ref Srv, string);
-	addunopen:	fn(srv: self ref Srv, name, id: string);
-	delunopen:	fn(srv: self ref Srv, id: string);
-	haveopen:	fn(srv: self ref Srv, id: string): int;
+	init:	fn(srvid: int, path: string): (ref Srv, string);
+	addunopen:	fn(srv: self ref Srv, name: string, id: int);
+	delunopen:	fn(srv: self ref Srv, id: int);
+	haveopen:	fn(srv: self ref Srv, id: int): int;
 };
 
 None, Meta, Data, Highlight: con iota;	# Win.state
@@ -65,8 +70,8 @@ Win: adt {
 	pick {
 	Irc =>
 		srv:	ref Srv;
-		id:	string;
-		ctlfd, datafd:	ref Sys->FD;
+		id:	int;
+		ctlfd, datafd, usersfd:	ref Sys->FD;
 		pids:	list of int;	# for reader, writer, usersreader
 		ischan:	int;
 		writec:	chan of string;
@@ -74,7 +79,7 @@ Win: adt {
 	Status =>
 	}
 
-	init:	fn(srv: ref Srv, id, name: string): (ref Win.Irc, string);
+	init:	fn(srv: ref Srv, id: int, name: string): (ref Win.Irc, string);
 	writetext:	fn(w: self ref Win, s: string): string;
 	addline:	fn(w: self ref Win, l: string, tag: string);
 	close:	fn(w: self ref Win);
@@ -199,6 +204,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 	str = load String String->PATH;
 	bufio = load Bufio Bufio->PATH;
 	arg := load Arg Arg->PATH;
+	lists = load Lists Lists->PATH;
 	regex = load Regex Regex->PATH;
 	plumbmsg = load Plumbmsg Plumbmsg->PATH;
 	tk = load Tk Tk->PATH;
@@ -248,23 +254,18 @@ init(ctxt: ref Draw->Context, args: list of string)
 		fail("could not get lineheight");
 	lineheight = int hd tl tl tl linetoks;
 
-	datach = chan of (ref Win.Irc, list of string);
-	eventch = chan of (ref Srv, list of string);
-	usersch = chan of (ref Win.Irc, string);
-	writererrch = chan[1] of (ref Win.Irc, string);
-
-	for(; args != nil; args = tl args) {
-		(srv, err) := Srv.init(hd args);
-		if(err != nil) {
-			tkwarn(err);
-			continue;
-		}
-		servers = srv::servers;
-		say("have new srv");
-	}
+	datac = chan of (ref Win.Irc, list of string);
+	eventc = chan of (ref Srv, list of string);
+	usersc = chan of (ref Win.Irc, string);
+	writererrc = chan[1] of (ref Win.Irc, string);
+	newsrvc = chan of (ref Srv, string);
+	newwinc = chan of (int, (ref Win.Irc, string));
 
 	tkclient->onscreen(t, nil);
 	tkclient->startinput(t, "kbd"::"ptr"::nil);
+
+	for(; args != nil; args = tl args)
+		spawn srvopen(lastsrvid++, hd args);
 
 	for(;;) alt {
 	s := <-t.ctxt.kbd =>
@@ -282,21 +283,54 @@ init(ctxt: ref Draw->Context, args: list of string)
 			tkclient->wmctl(t, menu);
 		}
 
+	(srv, err) := <-newsrvc =>
+		if(err != nil)
+			tkwarn(err);
+		else
+			servers = srv::servers;
+
+	(show, (win, err)) := <-newwinc =>
+		if(err != nil) {
+			tkwarn(err);
+			continue;
+		}
+		if(win.srv.dead)
+			continue;
+		win.setstate(None, 0);
+		pidc := chan of int;
+		spawn reader(pidc, win.datafd, win);
+		spawn writer(pidc, win.datafd, win);
+		spawn usersreader(pidc, win.usersfd, win);
+		win.pids = <-pidc::<-pidc::<-pidc::win.pids;
+		addwindow(win);
+		if(show)
+			showwindow(win);
+
 	cmd := <-tkcmdchan =>
 		dotk(cmd);
 
-	(ircwin, lines) := <-datach =>
+	(ircwin, lines) := <-datac =>
 		dodata(ircwin, lines);
 
-	(srv, tokens) := <-eventch =>
+	(srv, tokens) := <-eventc =>
 		doevent(srv, tokens);
 
-	(ircwin, s) := <-usersch =>
+	(ircwin, s) := <-usersc =>
 		douser(ircwin, s);
 
-	(w, err) := <-writererrch =>
+	(w, err) := <-writererrc =>
 		tkwinwarn(w, "writing: "+err);
 	}
+}
+
+srvopen(srvid: int, s: string)
+{
+	newsrvc <-= Srv.init(srvid, s);
+}
+
+winopen(srv: ref Srv, id: int, name: string, show: int)
+{
+	newwinc <-= (show, Win.init(srv, id, name));
 }
 
 dotk(cmd: string)
@@ -411,7 +445,7 @@ dotk(cmd: string)
 
 		pick win := curwin {
 		Irc =>
-			say("say line");
+			#say("say line");
 			if(line[0] == '/')
 				line = line[1:];
 			err := win.writetext(line);
@@ -524,27 +558,23 @@ doevent(srv: ref Srv, tokens: list of string)
 			return;
 		}
 
-		id := hd tokens;
+		id := int hd tokens;
 		name := hd tl tokens;
 		if(srv.haveopen(id)) {
-			tkstatuswarn(sprint("new window, but already present: %q (%q)", name, id));
+			tkstatuswarn(sprint("new window, but already present: %q (%d)", name, id));
 			return;
 		}
 		srv.addunopen(name, id);
-		if(!sflag || id == "0") {
-			(win, err) := Win.init(srv, id, name);
-			if(err != nil) {
-				tkwarn(err);
-				return;
-			}
-			addwindow(win);
+		if(!sflag || id == 0) {
+			srv.delunopen(id);
+			spawn winopen(srv, id, name, 0);
 		} else if(srv.win0 != nil)
-			tkwinwrite(srv.win0, sprint("new window: %q (%q)", name, id), "status");
-		say(sprint("have new target, path=%q id=%q", srv.path, id));
+			tkwinwrite(srv.win0, sprint("new window: %q (%d)", name, id), "status");
+		say(sprint("have new target, path=%q id=%d", srv.path, id));
 
 	"del" =>
-		id := hd tokens;
-		say(sprint("del target %q", id));
+		id := int hd tokens;
+		say(sprint("del target %d", id));
 		srv.delunopen(id);
 
 	"nick" =>
@@ -618,7 +648,7 @@ uncrap(s: string): (string, list of ref (int, int))
 		# 	;
 		* =>	r[len r] = s[i];
 		}
-	return (r, rev(bolds));
+	return (r, lists->reverse(bolds));
 }
 
 command(line: string)
@@ -629,11 +659,7 @@ command(line: string)
 	"add" =>
 		rem = str->drop(rem, " \t");
 		say(sprint("adding server %q", rem));
-		(srv, err) := Srv.init(rem);
-		if(err != nil)
-			tkwarn(err);
-		else
-			servers = srv::servers;
+		spawn srvopen(lastsrvid++, rem);
 		return;
 
 	"exit" =>
@@ -664,6 +690,7 @@ command(line: string)
 
 	"del" =>
 		srv := ircwin.srv;
+		srv.dead = 1;
 		for(wl := srv.wins; wl != nil; wl = tl wl)
 			(hd wl).close();
 		servers = del(srv, servers);
@@ -678,24 +705,19 @@ command(line: string)
 
 	"addwin" =>
 		rem = str->drop(rem, " \t");
-		if(ircwin.srv.haveopen(rem))
+		id := int rem;
+		if(ircwin.srv.haveopen(id))
 			err = "window already open";
-		win: ref Win.Irc;
 		if(err == nil)
-			(win, err) = Win.init(ircwin.srv, rem, nil);
-		if(err == nil) {
-			addwindow(win);
-			showwindow(win);
-			say(sprint("have new target, path=%q id=%q", ircwin.srv.path, rem));
-		}
+			spawn winopen(ircwin.srv, id, nil, 1);
 
 	"windows" =>
 		tkstatus("open:");
-		for(wl := rev(ircwin.srv.wins); wl != nil; wl = tl wl)
-			tkstatus(sprint("\t%-15s (%q)", (hd wl).name, (hd wl).id));
+		for(wl := lists->reverse(ircwin.srv.wins); wl != nil; wl = tl wl)
+			tkstatus(sprint("\t%-15s (%d)", (hd wl).name, (hd wl).id));
 		tkstatus("not open:");
 		for(l := ircwin.srv.unopen; l != nil; l = tl l)
-			tkstatus(sprint("\t%-15s (%q)", (hd l).t0, (hd l).t1));
+			tkstatus(sprint("\t%-15s (%d)", (hd l).t0, (hd l).t1));
 
 	"away" =>
 		for(l := servers; l != nil; l = tl l)
@@ -709,7 +731,7 @@ command(line: string)
 		tkwarn(err);
 }
 
-Srv.init(path: string): (ref Srv, string)
+Srv.init(srvid: int, path: string): (ref Srv, string)
 {
 	eventb := bufio->open(path+"/event", Sys->OREAD);
 	if(eventb == nil)
@@ -719,29 +741,29 @@ Srv.init(path: string): (ref Srv, string)
 	if(ctlfd == nil)
 		return (nil, sprint("open: %r"));
 
-	srv := ref Srv(string (lastsrvid++), path, ctlfd, nil, nil, 0, nil, nil, nil);
+	srv := ref Srv(srvid, path, ctlfd, nil, nil, 0, nil, nil, nil, 0);
 
 	spawn eventreader(pidc := chan of int, eventb, srv);
 	srv.eventpid = <-pidc;
 	return (srv, nil);
 }
 
-Srv.addunopen(srv: self ref Srv, name, id: string)
+Srv.addunopen(srv: self ref Srv, name: string, id: int)
 {
 	srv.delunopen(id);
 	srv.unopen = ref (name, id)::srv.unopen;
 }
 
-Srv.delunopen(srv: self ref Srv, id: string)
+Srv.delunopen(srv: self ref Srv, id: int)
 {
-	unopen: list of ref (string, string);
+	unopen: list of ref (string, int);
 	for(; srv.unopen != nil; srv.unopen = tl srv.unopen)
 		if((hd srv.unopen).t1 != id)
 			unopen = hd srv.unopen::unopen;
-	srv.unopen = rev(unopen);
+	srv.unopen = lists->reverse(unopen);
 }
 
-Srv.haveopen(srv: self ref Srv, id: string): int
+Srv.haveopen(srv: self ref Srv, id: int): int
 {
 	for(wl := srv.wins; wl != nil; wl = tl wl)
 		if((hd wl).id == id)
@@ -760,16 +782,16 @@ eventreader(pidc: chan of int, b: ref Iobuf, srv: ref Srv)
 		}
 		if(l[len l-1] == '\n')
 			l = l[:len l-1];
-		say(sprint("have event"));
+		#say(sprint("have event"));
 		(nil, tokens) := sys->tokenize(l, " ");
-		eventch <-= (srv, tokens);
+		eventc <-= (srv, tokens);
 	}
 }
 
 
-Win.init(srv: ref Srv, id, name: string): (ref Win.Irc, string)
+Win.init(srv: ref Srv, id: int, name: string): (ref Win.Irc, string)
 {
-	p := sprint("%s/%s", srv.path, id);
+	p := sprint("%s/%d", srv.path, id);
 
 	datafd := sys->open(p+"/data", Sys->ORDWR);
 	if(datafd == nil)
@@ -791,14 +813,8 @@ Win.init(srv: ref Srv, id, name: string): (ref Win.Irc, string)
 	if(usersfd == nil)
 		return (nil, sprint("open: %r"));
 
-	tkid := sprint("t-%s-%s", srv.id, id);
-	win := ref Win.Irc(name, tkid, -1, 0, 0, nil, None, srv, id, nil, datafd, nil, irc->ischannel(name), chan[8] of string, nil);
-	win.setstate(None, 0);
-	pidc := chan of int;
-	spawn reader(pidc, datafd, win);
-	spawn writer(pidc, datafd, win);
-	spawn usersreader(pidc, usersfd, win);
-	win.pids = <-pidc::<-pidc::<-pidc::win.pids;
+	tkid := sprint("t-%d-%d", srv.id, id);
+	win := ref Win.Irc(name, tkid, -1, 0, 0, nil, None, srv, id, nil, datafd, usersfd, nil, irc->ischannel(name), chan[8] of string, nil);
 	return (win, nil);
 }
 
@@ -809,7 +825,7 @@ reader(pidc: chan of int, fd: ref Sys->FD, win: ref Win.Irc)
 	for(;;) {
 		n := sys->read(fd, buf, len buf);
 		if(n == 0) {
-			datach <-= (win, nil);
+			datac <-= (win, nil);
 			break;
 		}
 		if(n < 0) {
@@ -817,7 +833,7 @@ reader(pidc: chan of int, fd: ref Sys->FD, win: ref Win.Irc)
 			break;
 		}
 		(nil, lines) := sys->tokenize(string buf[:n], "\n");
-		datach <-= (win, lines);
+		datac <-= (win, lines);
 	}
 }
 
@@ -830,7 +846,7 @@ writer(pidc: chan of int, fd: ref Sys->FD, w: ref Win.Irc)
 			break;
 		n := sys->write(fd, d := array of byte l, len d);
 		if(n != len d)
-			writererrch <-= (w, sys->sprint("%r"));
+			writererrc <-= (w, sys->sprint("%r"));
 	}
 }
 
@@ -846,7 +862,7 @@ usersreader(pidc: chan of int, fd: ref Sys->FD, w: ref Win.Irc)
 			warn(sprint("reading users: %r"));
 			break;
 		}
-		usersch <-= (w, string d[:n]);
+		usersc <-= (w, string d[:n]);
 	}
 }
 
@@ -889,7 +905,7 @@ Win.ctlwrite(win: self ref Win, s: string): string
 	pick w := win {
 	Irc =>
 		if(w.ctlfd == nil)
-			w.ctlfd = sys->open(sprint("%s/%s/ctl", w.srv.path, w.id), Sys->OWRITE);
+			w.ctlfd = sys->open(sprint("%s/%d/ctl", w.srv.path, w.id), Sys->OWRITE);
 		if(w.ctlfd == nil || sys->fprint(w.ctlfd, "%s", s) < 0)
 			return sprint("%r");
 		return nil;
@@ -913,7 +929,7 @@ Win.setstate(w: self ref Win, state, draw: int)
 		}
 
 		ws := " ";
-		if(win.id == "0")
+		if(win.id == 0)
 			ws = "";
 		w.status = sprint("%c%s", c, ws);
 	}
@@ -966,7 +982,7 @@ Win.plumbsend(w: self ref Win, text, key, val: string)
 	path := w.name;
 	pick ircwin := w {
 	Irc =>
-		path = sprint("%s/%s/", ircwin.srv.path, ircwin.id);
+		path = sprint("%s/%d/", ircwin.srv.path, ircwin.id);
 	}
 	attrs := plumbmsg->attrs2string(ref Plumbmsg->Attr(key, val)::nil);
 	msg := ref Msg("WmIrc", "", path, "text", attrs, array of byte text);
@@ -975,7 +991,6 @@ Win.plumbsend(w: self ref Win, text, key, val: string)
 
 showwindow(w: ref Win)
 {
-	say("show");
 	tkcmd(sprint("pack forget .m.%s", curwin.tkid));
 
 	tkcmd(sprint("bind .l <Control-\\-> {.%s yview scroll -0.75 page}", w.tkid));
@@ -996,6 +1011,30 @@ fixwinsel(i: int)
 	tkcmd(sprint(".targs selection set %d; .targs see %d; update", i, i));
 }
 
+winge(aa, bb: ref Win): int
+{
+	pick a := aa {
+	Irc =>
+		pick b := bb {
+		Irc =>
+			if(a.srv.id != b.srv.id)
+				return a.srv.id >= b.srv.id;
+			return a.id >= b.id;
+		}
+	}
+	raise "bad params for winge";
+}
+
+l2awin(l: list of ref Win.Irc): array of ref Win
+{
+	a := array[len l] of ref Win;
+	i := 0;
+	for(; l != nil; l = tl l)
+		a[i++] = hd l;
+	return a;
+}
+
+
 fixwindows()
 {
 	nwins := 1;
@@ -1003,29 +1042,29 @@ fixwindows()
 		nwins += len (hd s).wins;
 	wins := array[nwins] of ref Win;
 	wins[0] = statuswin;
-	index := 1;
+	o := 1;
+	for(l := servers; l != nil; l = tl l) {
+		wins[o:] = l2awin((hd l).wins);
+		o += len (hd l).wins;
+	}
+	sort(wins[1:], winge);
+	
 	useindex := -1;
-	for(s = rev(servers); s != nil; s = tl s)
-		for(wl := rev((hd s).wins); wl != nil; wl = tl wl) {
-			w := hd wl;
-			w.listindex = index;
-			if(w == curwin)
-				useindex = index;
-			if(w == lastwin && useindex < 0)
-				useindex = index;
-			wins[index++] = w;
-		}
+	for(i := 0; i < len wins; i++) {
+		wins[i].listindex = i;
+		if(wins[i] == curwin || wins[i] == lastwin && useindex < 0)
+			useindex = i;
+	}
+	if(useindex < 0)
+		useindex = 0;
 
 	windows = wins;
-
 	tkcmd(sprint(".targs delete 0 end"));
-	for(i := 0; i < len windows; i++) {
+	for(i = 0; i < len windows; i++) {
 		w := windows[i];
 		tkcmd(sprint(".targs insert %d {%s%s}", w.listindex, w.status, w.name));
 	}
 
-	if(useindex < 0)
-		useindex = 0;
 	fixwinsel(useindex);
 	showwindow(windows[useindex]);
 }
@@ -1036,7 +1075,7 @@ addwindow(w: ref Win.Irc)
 	w.srv.delunopen(w.id);
 	w.srv.wins = w::w.srv.wins;
 
-	if(w.id == "0")
+	if(w.id == 0)
 		w.srv.win0 = w;
 	fixwindows();
 }
@@ -1168,15 +1207,17 @@ del[T](e: T, l: list of T): list of T
 	for(; l != nil; l = tl l)
 		if(hd l != e)
 			r = hd l::r;
-	return rev(r);
+	return lists->reverse(r);
 }
 
-rev[T](l: list of T): list of T
+sort[T](a: array of T, ge: ref fn(a, b: T): int)
 {
-	r: list of T;
-	for(; l != nil; l = tl l)
-		r = hd l::r;
-	return r;
+	for(i := 1; i < len a; i++) {
+		tmp := a[i];
+		for(j := i; j > 0 && ge(a[j-1], tmp); j--)
+			a[j] = a[j-1];
+		a[j] = tmp;
+	}
 }
 
 kill(pid: int)
