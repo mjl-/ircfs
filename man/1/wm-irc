@@ -40,9 +40,9 @@ All irc directories are opened as windows.
 
 .PP
 .B Wm/irc
-strips specials characters that cause colours, underlines and bold fonts to be displayed in other irc clients from the input.
+strips specials characters that cause colours and underlines to be displayed in other irc clients from the input.  Only bold instructions are used, drawn underlined.
 Occurrences of our nick are highlighted in yellow.
-Activity on windows is shown by a single character left to the name of the window, in the list on the left.  The status is cleared (the character set to a space) when a window is shown.  Highlights and text in user queries have the highest priority and are displayed as an ``='';  text in channels is displayed as a ``+'';  meta information (such as joins and topic changes) is displayed as ``-''.
+Activity on windows is shown by a single character left to the name of the window, in the list on the left.  The status is cleared (the character set to a space) when a window is shown.  Highlights and text in user queries have the highest priority and are displayed as an ``='';  text in channels is displayed as a ``+'';  meta information (such as joins and topic changes) is displayed as ``-''.  The server status window can be marked with ``~'' to indicate delays in the connection between wm/irc and ircfs, and/or between ircfs and the irc server.
 
 .SS Options
 .TP

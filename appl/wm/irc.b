@@ -10,6 +10,8 @@ include "arg.m";
 include "bufio.m";
 	bufio: Bufio;
 	Iobuf: import bufio;
+include "daytime.m";
+	daytime: Daytime;
 include "lists.m";
 	lists: Lists;
 include "regex.m";
@@ -30,6 +32,7 @@ Windowlinesmax: con 8*1024;
 
 datac: chan of (ref Win.Irc, list of string);
 eventc: chan of (ref Srv, list of string);
+pongc: chan of (ref Srv, list of string);
 usersc: chan of (ref Win.Irc, string);
 newsrvc: chan of (ref Srv, string);
 newwinc: chan of (int, (ref Win.Irc, string));
@@ -41,7 +44,9 @@ lastsrvid := 0;		# unique id's
 Srv: adt {
 	id:	int;		# lastsrvid
 	path:	string;	
-	ctlfd:	ref Sys->FD;
+	ctlfd,
+	pongfd:	ref Sys->FD;
+	eventb:	ref Iobuf;
 	nick, lnick:	string;	# our name and lowercase
 	eventpid:	int;
 	win0:	cyclic ref Win.Irc;
@@ -49,13 +54,21 @@ Srv: adt {
 	unopen:	list of ref (string, int);	# name, id
 	dead:	int;
 
+	# we keep reading the pong file, if no data comes in, ircfs isn't responding.
+	# if nopong comes in, the server isn't responding.
+	pongpid:	int;  # pid of pong reader
+	lastpong:	int;  # time of last seen pong/nopong message
+	nopong:		int;  # whether last message was a nopong
+	noircfs:	int;  # whether we're missing messages from ircfs
+	pongwatchpid: 	int;
+
 	init:	fn(srvid: int, path: string): (ref Srv, string);
 	addunopen:	fn(srv: self ref Srv, name: string, id: int);
 	delunopen:	fn(srv: self ref Srv, id: int);
 	haveopen:	fn(srv: self ref Srv, id: int): int;
 };
 
-None, Meta, Data, Highlight: con iota;	# Win.state
+None, Meta, Delayed, Data, Highlight: con iota;	# Win.state
 
 # window, an irc directory except for status window
 Win: adt {
@@ -107,6 +120,10 @@ width := 800;
 height := 600;
 res: list of Re;
 
+Pinginterval: con 60;	# seconds between ircfs pong and next ping
+Noponginterval: con 5;	# seconds ircfs waits before sending nopong
+Pongslack: con 5;	# seconds the pong/nopong event may be late before we start complaining
+pongwatchc: chan of ref Srv;
 
 WmIrc: module
 {
@@ -204,6 +221,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 	str = load String String->PATH;
 	bufio = load Bufio Bufio->PATH;
 	arg := load Arg Arg->PATH;
+	daytime = load Daytime Daytime->PATH;
 	lists = load Lists Lists->PATH;
 	regex = load Regex Regex->PATH;
 	plumbmsg = load Plumbmsg Plumbmsg->PATH;
@@ -256,10 +274,12 @@ init(ctxt: ref Draw->Context, args: list of string)
 
 	datac = chan of (ref Win.Irc, list of string);
 	eventc = chan of (ref Srv, list of string);
+	pongc = chan of (ref Srv, list of string);
 	usersc = chan of (ref Win.Irc, string);
 	writererrc = chan[1] of (ref Win.Irc, string);
 	newsrvc = chan of (ref Srv, string);
 	newwinc = chan of (int, (ref Win.Irc, string));
+	pongwatchc = chan of ref Srv;
 
 	tkclient->onscreen(t, nil);
 	tkclient->startinput(t, "kbd"::"ptr"::nil);
@@ -277,17 +297,34 @@ init(ctxt: ref Draw->Context, args: list of string)
 	menu := <-wmctl =>
 		case menu {
 		"exit" =>
-			killgrp(sys->pctl(0, nil));
+			killgrp(pid());
 			exit;
 		* =>
 			tkclient->wmctl(t, menu);
 		}
 
+	srv := <-pongwatchc =>
+		say("pongwatch timeout");
+		srv.pongwatchpid = -1;
+		if(srv.dead)
+			continue;
+		tkwinwarn(srv.win0, sprint("no ircfs response for %d seconds", daytime->now()-srv.lastpong));
+		srv.win0.setstate(Delayed, 1);
+		tkcmd("update");
+		pongwatch(srv, 5);
+		srv.noircfs = 1;
+
 	(srv, err) := <-newsrvc =>
-		if(err != nil)
+		if(err != nil) {
 			tkwarn(err);
-		else
-			servers = srv::servers;
+			continue;
+		}
+		pidc := chan of int;
+		spawn eventreader(pidc, srv);
+		srv.eventpid = <-pidc;
+		spawn pongreader(pidc, srv);
+		srv.pongpid = <-pidc;
+		servers = srv::servers;
 
 	(show, (win, err)) := <-newwinc =>
 		if(err != nil) {
@@ -314,6 +351,9 @@ init(ctxt: ref Draw->Context, args: list of string)
 
 	(srv, tokens) := <-eventc =>
 		doevent(srv, tokens);
+
+	(srv, tokens) := <-pongc =>
+		dopong(srv, tokens);
 
 	(ircwin, s) := <-usersc =>
 		douser(ircwin, s);
@@ -568,8 +608,10 @@ doevent(srv: ref Srv, tokens: list of string)
 		if(!sflag || id == 0) {
 			srv.delunopen(id);
 			spawn winopen(srv, id, name, 0);
-		} else if(srv.win0 != nil)
+		} else if(srv.win0 != nil) {
 			tkwinwrite(srv.win0, sprint("new window: %q (%d)", name, id), "status");
+			tkcmd("update");
+		}
 		say(sprint("have new target, path=%q id=%d", srv.path, id));
 
 	"del" =>
@@ -585,15 +627,75 @@ doevent(srv: ref Srv, tokens: list of string)
 	"disconnected" =>
 		say("disconnected");
 		tkstatuswarn(sprint("disconnected: %q", srv.path));
+		kill(srv.pongwatchpid);
+		srv.pongwatchpid = -1;
 
 	"connected" =>
 		srv.nick = hd tokens;
 		srv.lnick = irc->lowercase(srv.nick);
 		tkstatuswarn(sprint("connected %q: %q", srv.path, srv.nick));
+		pongwatch(srv, Pinginterval+Noponginterval+Pongslack);
 
 	"connecting" =>
 		tkstatuswarn(sprint("connecting: %q", srv.path));
 	}
+}
+
+dopong(srv: ref Srv, tokens: list of string)
+{
+	event := hd tokens;
+	tokens = tl tokens;
+	
+	if(srv.noircfs) {
+		tkwinwrite(srv.win0, sprint("have ircfs response again, after %d seconds", daytime->now()-srv.lastpong), "warning");
+		srv.win0.setstate(Meta, 1);
+		tkcmd("update");
+		srv.noircfs = 0;
+	}
+	case event {
+	"pong" =>
+		if(srv.nopong) {
+			nsecs := 0;
+			if(len tokens == 1)
+				nsecs = int hd tokens;
+			tkwinwrite(srv.win0, sprint("have irc server response again, after %d seconds", nsecs), "warning");
+			if(srv.win0.state == Delayed)
+				srv.win0.state = Meta;
+			srv.win0.setstate(Meta, 1);
+			tkcmd("update");
+			srv.nopong = 0;
+		}
+		srv.lastpong = daytime->now();
+		pongwatch(srv, Pinginterval+Noponginterval+Pongslack);
+
+	"nopong" =>
+		srv.lastpong = daytime->now();
+		nsecs := 0;
+		if(len tokens == 1)
+			nsecs = int hd tokens;
+		tkwinwrite(srv.win0, sprint("no response from irc server for %d seconds", nsecs), "warning");
+		srv.win0.setstate(Delayed, 1);
+		srv.nopong = 1;
+		srv.noircfs = 0;
+		pongwatch(srv, Noponginterval+Pongslack);
+	* =>
+		warn(sprint("unknown pong file message: %s", str->quoted(tokens)));
+	}
+}
+
+pongwatch(srv: ref Srv, nsecs: int)
+{
+	kill(srv.pongwatchpid);
+	say(sprint("pongwatch, reporting in %d seconds", nsecs));
+	spawn pongwatcher(srv, nsecs, pidc := chan of int);
+	srv.pongwatchpid = <-pidc;
+}
+
+pongwatcher(srv: ref Srv, nsecs: int, pidc: chan of int)
+{
+	pidc <-= pid();
+	sys->sleep(nsecs*1000);
+	pongwatchc <-= srv;
 }
 
 douser(w: ref Win.Irc, s: string)
@@ -663,7 +765,7 @@ command(line: string)
 		return;
 
 	"exit" =>
-		killgrp(sys->pctl(0, nil));
+		killgrp(pid());
 		exit;
 
 	"clear" =>
@@ -695,6 +797,7 @@ command(line: string)
 			(hd wl).close();
 		servers = del(srv, servers);
 		kill(srv.eventpid);
+		kill(srv.pongpid);
 		curwin = lastwin;
 		pick win := lastwin {
 		Irc =>
@@ -741,10 +844,11 @@ Srv.init(srvid: int, path: string): (ref Srv, string)
 	if(ctlfd == nil)
 		return (nil, sprint("open: %r"));
 
-	srv := ref Srv(srvid, path, ctlfd, nil, nil, 0, nil, nil, nil, 0);
+	pongfd := sys->open(path+"/pong", Sys->OREAD);
+	if(pongfd == nil)
+		return (nil, sprint("open: %r"));
 
-	spawn eventreader(pidc := chan of int, eventb, srv);
-	srv.eventpid = <-pidc;
+	srv := ref Srv(srvid, path, ctlfd, pongfd, eventb, nil, nil, 0, nil, nil, nil, 0, -1, daytime->now(), 0, 0, -1);
 	return (srv, nil);
 }
 
@@ -771,11 +875,11 @@ Srv.haveopen(srv: self ref Srv, id: int): int
 	return 0;
 }
 
-eventreader(pidc: chan of int, b: ref Iobuf, srv: ref Srv)
+eventreader(pidc: chan of int, srv: ref Srv)
 {
-	pidc <-= sys->pctl(0, nil);
+	pidc <-= pid();
 	for(;;) {
-		l := b.gets('\n');
+		l := srv.eventb.gets('\n');
 		if(l == nil) {
 			warn(sprint("eventreader eof/error: %r"));
 			break;
@@ -785,6 +889,26 @@ eventreader(pidc: chan of int, b: ref Iobuf, srv: ref Srv)
 		#say(sprint("have event"));
 		(nil, tokens) := sys->tokenize(l, " ");
 		eventc <-= (srv, tokens);
+	}
+}
+
+pongreader(pidc: chan of int, srv: ref Srv)
+{
+	pidc <-= pid();
+	buf := array[128] of byte;
+	for(;;) {
+		n := sys->read(srv.pongfd, buf, len buf);
+		if(n == 0) {
+			pongc <-= (srv, nil);
+			break;
+		}
+		if(n < 0) {
+			warn(sprint("read error: %r"));
+			break;
+		}
+		l := sys->tokenize(string buf[:n], "\n").t1;
+		for(; l != nil; l = tl l)
+			pongc <-= (srv, sys->tokenize(hd l, " ").t1);
 	}
 }
 
@@ -820,7 +944,7 @@ Win.init(srv: ref Srv, id: int, name: string): (ref Win.Irc, string)
 
 reader(pidc: chan of int, fd: ref Sys->FD, win: ref Win.Irc)
 {
-	pidc <-= sys->pctl(0, nil);
+	pidc <-= pid();
 	buf := array[Sys->ATOMICIO] of byte;
 	for(;;) {
 		n := sys->read(fd, buf, len buf);
@@ -839,7 +963,7 @@ reader(pidc: chan of int, fd: ref Sys->FD, win: ref Win.Irc)
 
 writer(pidc: chan of int, fd: ref Sys->FD, w: ref Win.Irc)
 {
-	pidc <-= sys->pctl(0, nil);
+	pidc <-= pid();
 	for(;;) {
 		l := <-w.writec;
 		if(l == nil)
@@ -852,7 +976,7 @@ writer(pidc: chan of int, fd: ref Sys->FD, w: ref Win.Irc)
 
 usersreader(pidc: chan of int, fd: ref Sys->FD, w: ref Win.Irc)
 {
-	pidc <-= sys->pctl(0, nil);
+	pidc <-= pid();
 	d := array[1024] of byte;
 	for(;;) {
 		n := sys->read(fd, d, len d);
@@ -925,6 +1049,7 @@ Win.setstate(w: self ref Win, state, draw: int)
 		Highlight =>	c = '=';
 				w.plumbsend(nil, "highlight", w.name);
 		Data =>		c = '+';
+		Delayed =>	c = '~';
 		Meta =>		c = '-';
 		}
 
@@ -1218,6 +1343,11 @@ sort[T](a: array of T, ge: ref fn(a, b: T): int)
 			a[j] = a[j-1];
 		a[j] = tmp;
 	}
+}
+
+pid(): int
+{
+	return sys->pctl(0, nil);
 }
 
 kill(pid: int)

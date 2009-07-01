@@ -73,7 +73,7 @@ Ircc.new(fd: ref Sys->FD, addr, nick, name, pass: string): (ref Ircc, string)
 	if(b == nil)
 		return (nil, sprint("bufio fopen: %r"));
 
-	c := ref Ircc(fd, b, addr, nick, lowercase(nick));
+	c := ref Ircc(fd, b, addr, nick, lowercase(nick), nil);
 	if(pass != nil)
 		err := c.writemsg(ref Timsg.Pass(pass));
 	if(err == nil) err = c.writemsg(ref Timsg.Nick(nick));
@@ -130,6 +130,7 @@ Timsg.pack(m: self ref Timsg): string
 	Kick =>		s += sprint("KICK %s %s %s", mm.where, mm.who, mm.m);
 	Names =>	s += sprint("NAMES %s", mm.name);
 	Invite =>	s += sprint("INVITE %s %s", mm.who, mm.where);
+	Ping =>		s += sprint("PING %s", mm.server);
 	* =>	raise "missing case";
 	}
 	s += "\r\n";
@@ -161,6 +162,7 @@ Timsg.text(m: self ref Timsg): string
 	Kick =>		s += sprint("Kick(%q, %q, %q", mm.where, mm.who, mm.m);
 	Names =>	s += sprint("Names(%q)", mm.name);
 	Invite =>	s += sprint("Invite(%q, %q)", mm.who, mm.where);
+	Ping =>		s += sprint("Ping(%q)", mm.server);
 	* =>	raise "missing case";
 	}
 	return s;

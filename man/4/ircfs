@@ -75,8 +75,9 @@ The following files are exported:
 .B /ctl
 The following commands are understood:
 reconnect, connect
-.IR "address nick [fromhost]" ,
-disconnect,
+.IR "address nick [password [fromhost]]" ,
+disconnect
+.IR [msg] ,
 quit
 .IR [msg] ,
 join
@@ -91,13 +92,15 @@ umode
 whois
 .IR nick ,
 invite
-.I "nick channel"
+.IR "nick channel" ,
+msg
+.IR "nick|channel msg" ,
 and
 time,
 version
 and
 ping
-(these last three are ctcp messages).  Reconnect performs a reconnect with address and nick from the previous connection, or the address and nick specified on the command line.  Commands are issued directly to the irc server.  Responses from the irc server can be read from the status directory data file
+(these last three are ctcp messages).  Reconnect performs a reconnect with the parameters from the previous connection.  Commands are issued directly to the irc server.  Responses from the irc server can be read from the status directory data file
 .IR /0/data .
 The responses are free-form and cannot be matched to specific commands (the irc protocol does not contain the necessary information).
 .TP
@@ -141,6 +144,24 @@ or
 .I >>>
 prepended.  Writes to this file are passed on to the irc connection verbatim, such writes will also be read by readers of this file.
 .TP
+.B /pong
+Read-only file to check whether the connection to ircfs and the irc
+server is responsive.  Ircfs sends PING messages to the irc server.
+When the server replies with a PONG, a read on this file returns a
+line containing
+.IR "``pong n''" ,
+with
+.I n
+the number of seconds between the ping and pong messages.
+If the irc server is not responding in timely fashion, reads will return lines of the form
+.IR "``nopong n''" ,
+with
+.I n
+the number of elapsed seconds since the ping message.  These
+``nopong''-messages are repeated every 5 seconds.  This allows
+clients like wm/irc to determine whether the connection to the ircfs
+is functioning.
+.TP
 .B /n
 Connection directory.  Each channel or user query is represented by a directory.  The special directory ``/0'' is reserved for connection status messages.
 .TP
@@ -151,7 +172,7 @@ are also understood by
 .IR /n/ctl ,
 modulo some commands that do not work on the status directory.
 Additional commands:
-names, n,
+names, n (shorthand for names),
 me
 .IR msg,
 notice

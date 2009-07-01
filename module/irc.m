@@ -31,6 +31,7 @@ Irc: module {
 		b:	ref Bufio->Iobuf;
 		addr:	string;
 		nick, lnick:	string;
+		server:	string;
 
 		new:	fn(fd: ref Sys->FD, addr: string, nick, name, pass: string): (ref Ircc, string);
 		readmsg:	fn(c: self ref Ircc): (ref Rimsg, string, string);
@@ -75,6 +76,8 @@ Irc: module {
 			name: string;
 		Invite =>
 			who, where: string;
+		Ping =>
+			server:	string;
 		}
 
 		pack:	fn(m: self ref Timsg): string;

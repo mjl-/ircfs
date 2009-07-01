@@ -45,7 +45,7 @@ connectmsg: ref Tmsg.Write;  # only non-nil when connecting:  the ctl write "con
 starttime: int;
 imsgselflen := 0;
 
-Qroot, Qrootctl, Qevent, Qraw, Qnick, Qdir, Qctl, Qname, Qusers, Qdata: con iota;
+Qroot, Qrootctl, Qevent, Qraw, Qnick, Qpong, Qdir, Qctl, Qname, Qusers, Qdata: con iota;
 files := array[] of {
 	(Qroot,		".",	Sys->DMDIR|8r555),
 
@@ -53,6 +53,7 @@ files := array[] of {
 	(Qevent,	"event",8r444),
 	(Qraw,		"raw",	8r666),
 	(Qnick,		"nick",	8r444),
+	(Qpong,		"pong",	8r444),
 
 	(Qdir, 		"",	Sys->DMDIR|8r555),
 	(Qctl,		"ctl",	8r222),
@@ -99,6 +100,7 @@ Fidfile: adt {
 };
 rawfile := array[0] of ref Fidfile;
 eventfile := array[0] of ref Fidfile;
+pongfile := array[0] of ref Fidfile;
 
 ic: ref Ircc;
 srv: ref Styxserver;
@@ -111,7 +113,16 @@ daych: chan of int;
 dialerrch: chan of string;
 dialch: chan of (int, int);
 
-readerpid := writerpid := -1;
+# ircfs pings the server 60 seconds after receiving the previous pong (and after connection setup, to get it going).
+# if pong is within 5 secs, write "pong X" with X the delay
+# if pong is later, keep writing "nopong X" every 5 seconds until the pong arrives, X is the total delay since the ping.
+nextpingc: chan of int;
+pingwatchc: chan of int;
+pingtime: int;		# time of last ping to server
+Pinginterval: con 60;	# seconds between ircfs pong and next ping
+Noponginterval: con 5;	# seconds ircfs waits before sending nopong
+
+readerpid := writerpid := nextpingpid := pingwatchpid := -1;
 
 Ircfs: module {
 	init:	fn(nil: ref Draw->Context, args: list of string);
@@ -166,6 +177,8 @@ init(nil: ref Draw->Context, args: list of string)
 	daych = chan of int;
 	dialerrch = chan of string;
 	dialch = chan of (int, int);
+	nextpingc = chan of int;
+	pingwatchc = chan of int;
 
 	spawn dayticker();
 
@@ -190,6 +203,12 @@ done:
 		for(i := 0; i < len targets; i++)
 			if(!targets[i].dead)
 				targets[i].write(daystr);
+
+	<-pingwatchc =>
+		writefile(pongfile, sprint("nopong %d\n", daytime->now()-pingtime));
+
+	<-nextpingc =>
+		ping();
 
 	(m, line, err) := <-ircinch =>
 		say(sprint("ircin, err %q, line %q", err, line));
@@ -227,7 +246,7 @@ done:
 		}
 		dostyx(gm);
 	}
-	killgrp(sys->pctl(0, nil));
+	killgrp(pid());
 }
 
 dayticker()
@@ -245,6 +264,32 @@ dayticker()
 	}
 }
 
+nextping(pidc: chan of int)
+{
+	pidc <-= pid();
+	sys->sleep(Pinginterval*1000);
+	nextpingc <-= 1;
+}
+
+pingwatch(pidc: chan of int)
+{
+	pidc <-= pid();
+	for(;;) {
+		sys->sleep(Noponginterval*1000);
+		pingwatchc <-= 1;
+	}
+}
+
+ping()
+{
+	err := writemsg(ref Timsg.Ping (ic.server));
+	if(err != nil)
+		warn("writing ping request: "+err);
+	spawn pingwatch(pidc := chan of int);
+	pingwatchpid = <-pidc;
+	pingtime = daytime->now();
+}
+
 doirc(m: ref Rimsg, line, err: string)
 {
 	if(line != nil)
@@ -260,6 +305,13 @@ doirc(m: ref Rimsg, line, err: string)
 		err = writemsg(ref Timsg.Pong(mm.who, mm.m));
 		if(err != nil)
 			warn("writing pong: "+err);
+
+	Pong =>
+		kill(pingwatchpid);
+		pingwatchpid = -1;
+		writefile(pongfile, sprint("pong %d\n", daytime->now()-pingtime));
+		spawn nextping(pidc := chan of int);
+		nextpingpid = <-pidc;
 
 	Notice =>
 		t := findtargetname(mm.where);
@@ -413,6 +465,10 @@ doirc(m: ref Rimsg, line, err: string)
 					err = writemsg(ref Timsg.Whois(ic.nick));
 					if(err != nil)
 						warn("writing whois request: "+err);
+
+					# first ping, to get the pong/nopong process going
+					ic.server = mm.f.server;
+					ping();
 				} else
 					warn("RPLwelcome while already connected");
 
@@ -530,6 +586,11 @@ dostyx(gm: ref Tmsg)
 			eventfile = addfidfile(eventfile, ff);
 			say("new eventfile fidfile inserted");
 
+		Qpong =>
+			ff := Fidfile.new(fid, nil);
+			pongfile = addfidfile(pongfile, ff);
+			say("new pongfile fidfile inserted");
+
 		Qusers =>
 			ff := Fidfile.new(fid, nil);
 			for(i := 0; i < len t.joined; i++)
@@ -592,6 +653,7 @@ dostyx(gm: ref Tmsg)
 			case q {
 			Qraw =>		rawfile = delfidfile(rawfile, f);
 			Qevent =>	eventfile = delfidfile(eventfile, f);
+			Qpong =>	pongfile = delfidfile(pongfile, f);
 			Qusers =>	t.users = delfidfile(t.users, f);
 			Qdata =>	t.data = delfidfile(t.data, f);
 			}
@@ -624,6 +686,8 @@ dostyx(gm: ref Tmsg)
 			fidread(eventfile, f, m, nil);
 		Qnick =>
 			srv.reply(styxservers->readstr(m, ic.nick));
+		Qpong =>
+			fidread(pongfile, f, m, nil);
 		Qname =>
 			srv.reply(styxservers->readstr(m, t.name));
 		Qusers =>
@@ -658,7 +722,7 @@ dostyx(gm: ref Tmsg)
 			return;
 		}
 
-		have := fidflush(eventfile, m.oldtag) || fidflush(rawfile, m.oldtag);
+		have := fidflush(eventfile, m.oldtag) || fidflush(rawfile, m.oldtag) || fidflush(pongfile, m.oldtag);
 		for(i := 0; !have && i < len targets; i++)
 			have = fidflush(targets[i].data, m.oldtag);
 		srv.default(gm);
@@ -700,7 +764,7 @@ again:
 
 			case q {
 			Qroot =>
-				for(i := Qrootctl; i <= Qnick; i++)
+				for(i := Qrootctl; i <= Qpong; i++)
 					if(files[i].t1 == op.name) {
 						op.reply <-= (dir(files[i].t0, starttime), nil);
 						continue again;
@@ -736,7 +800,7 @@ again:
 				continue again;
 			}
 			if(int op.path == Qroot) {
-				nfixed: con Qnick+1-Qrootctl;
+				nfixed: con Qpong+1-Qrootctl;
 				have := 0;
 				for(i := op.offset; have < op.count && i < nfixed+len targets; i++)
 					case i {
@@ -838,6 +902,7 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 			return replyerror(m, "bogus key for non-channel");
 		else
 			gettarget(name);
+	"disconnect" or
 	"quit" =>
 		msg := rem;
 		if(msg == nil)
@@ -976,11 +1041,11 @@ disconnect()
 		if(!targets[i].dead)
 			targets[i].shutdown();
 	say(sprint("killing pids %d %d", readerpid, writerpid));
-	if(readerpid >= 0)
-		kill(readerpid);
-	if(writerpid >= 0)
-		kill(writerpid);
-	readerpid = writerpid = -1;
+	kill(readerpid);
+	kill(writerpid);
+	kill(nextpingpid);
+	kill(pingwatchpid);
+	readerpid = writerpid = nextpingpid = pingwatchpid = -1;
 }
 
 connectstatus(): string
@@ -1112,7 +1177,7 @@ ircreader(addr, fromhost, newnick, newpass: string)
 	spawn ircwriter(pidc := chan of int, dfd);
 	say("new ircc");
 	wpid := <-pidc;
-	dialch <-= (sys->pctl(0, nil), wpid);
+	dialch <-= (pid(), wpid);
 
 	for(;;) {
 		(m, l, merr) := ic.readmsg();
@@ -1128,7 +1193,7 @@ ircreader(addr, fromhost, newnick, newpass: string)
 
 ircwriter(pidc: chan of int, fd: ref Sys->FD)
 {
-	pidc <-= sys->pctl(0, nil);
+	pidc <-= pid();
 	say("ircwriter");
 	for(;;) {
 		d := <-ircoutch;
@@ -1469,6 +1534,11 @@ stripnewline(l: string): string
 	return l;
 }
 
+pid(): int
+{
+	return sys->pctl(0, nil);
+}
+
 killgrp(pid: int)
 {
 	progctl(pid, "killgrp");
@@ -1481,8 +1551,7 @@ kill(pid: int)
 
 progctl(pid: int, ctl: string)
 {
-	fd := sys->open(sprint("/prog/%d/ctl", pid), Sys->OWRITE);
-	if(fd != nil)
+	if(pid >= 0 && (fd := sys->open(sprint("/prog/%d/ctl", pid), Sys->OWRITE)) != nil)
 		sys->fprint(fd, "%s", ctl);
 }
 
