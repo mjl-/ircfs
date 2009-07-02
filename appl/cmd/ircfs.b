@@ -1,3 +1,27 @@
+# ircfs design.
+#
+# each channel and user is represented by a Target.
+# there is also a (one) status Target, for all messages not for a (specific) channel or user.
+#
+# an open file is represented by a Fidfile.  e.g. a Target's "data"
+# or "users" is represented as an array of Fidfile's.
+# a Fidfile is an array of buffers, writing to a Fidfile just appends
+# to the buffer and responds to as many pending styx reads as possible.
+#
+# threads:
+# - main, styx & irc messages and other events go here.  main owns almost all data structures.
+# - navigator, styx navigator.  (runs in lockstep with main, so can access data structures directly).
+# - ircreader, dials the irc server, spawns ircwriter, reads irc messages (sending them to main)
+# - ircwriter, writes irc messages to network
+# - dayticker, sleeps the whole day, wakes up at midnight to print a "day changed" message
+# - pingwatch, spawned after sending a ping.  sleeps, then signals main for pong timeout.  it's normally killed when pong arrives in time.
+# - nextping, spawned after receiving pong.  wakes up & signals main when it's time to send another ping.
+#
+# the lower 8 bits of qids are the type of file.  the 24 higher bits are Target.id.
+#
+# other notes:
+# - variable names start with l are usually lowercased names (according to irc rules)
+
 implement Ircfs;
 
 include "sys.m";
@@ -22,13 +46,14 @@ include "lists.m";
 	lists: Lists;
 include "irc.m";
 	irc: Irc;
-	lowercase, ischannel, Ircc, Timsg, Rimsg, From: import irc;
+	lowercase, ischannel, Irccon, Timsg, Rimsg, From: import irc;
 
 Etarget: 	con "no such target";
 Edead:		con "file closed";
 Enocon:		con "not connected";
 Estatus:	con "invalid on status file";
 Enotchan:	con "only works on channel";
+Ebadctl:	con "bad ctl message";
 Enotfound, Enotdir: import Styxservers;
 
 Histmax:	con 32*1024;
@@ -38,12 +63,15 @@ Disconnected, Dialing, Connecting, Connected: con iota;
 
 Dflag, dflag, tflag: int;
 logpath: string;
-netname: string;
-lastnick, lastpass, lastaddr, lastfromhost: string;
+netname: string;	# used for the name of the status Target
+lastnick,
+lastpass,
+lastaddr,
+lastfromhost: string;	# connection parameters
 state := Disconnected;
-connectmsg: ref Tmsg.Write;  # only non-nil when connecting:  the ctl write "connect"
+connectmsg: ref Tmsg.Write;	# only non-nil when connecting:  the ctl write "connect"
 starttime: int;
-imsgselflen := 0;
+imsgselflen := 0;	# length of our full irc path (nick,user,host)
 
 Qroot, Qrootctl, Qevent, Qraw, Qnick, Qpong, Qdir, Qctl, Qname, Qusers, Qdata: con iota;
 files := array[] of {
@@ -65,16 +93,20 @@ files := array[] of {
 lastid := 0;
 Target: adt {
 	id:	int;
-	name, lname:	string;
+	name,
+	lname:	string;  # cased and lower-cased name
 	ischan:	int;
 	logfd:	ref Sys->FD;
-	data, users:	array of ref Fidfile;
+	data,
+	users:	array of ref Fidfile;
 	hist:	array of array of byte;
 	histlen:	int;
-	begin, end:	int;
-	joined, newjoined:	array of string;
+	begin,
+	end:	int;
+	joined,		# cased users currently joined, and 
+	newjoined:	array of string;	# new list of joined users currently constructed
 	dead:	int;
-	opens:	int;
+	opens:	int;	# ref count, Target is removed if dead and no opens
 	prevaway:	string;
 	mtime:	int;
 
@@ -102,19 +134,19 @@ rawfile := array[0] of ref Fidfile;
 eventfile := array[0] of ref Fidfile;
 pongfile := array[0] of ref Fidfile;
 
-ic: ref Ircc;
+ic: ref Irccon;
 srv: ref Styxserver;
 targets := array[0] of ref Target;
 status: ref Target;
-ircinch: chan of (ref Rimsg, string, string);
-ircoutch: chan of array of byte;
-ircerrch: chan of string;
-daych: chan of int;
-dialerrch: chan of string;
-dialch: chan of (int, int);
+ircinc: chan of (ref Rimsg, string, string);
+ircoutc: chan of array of byte;
+ircerrc: chan of string;
+dayc: chan of int;
+dialerrc: chan of string;
+dialc: chan of (int, int);
 
-# ircfs pings the server 60 seconds after receiving the previous pong (and after connection setup, to get it going).
-# if pong is within 5 secs, write "pong X" with X the delay
+# we ping the server Pinginterval seconds after receiving the previous pong (and after connection setup, to get it going).
+# if pong is within 5 secs, we write "pong X" with X the delay
 # if pong is later, keep writing "nopong X" every 5 seconds until the pong arrives, X is the total delay since the ping.
 nextpingc: chan of int;
 pingwatchc: chan of int;
@@ -158,8 +190,7 @@ init(nil: ref Draw->Context, args: list of string)
 		'D' =>	Dflag++;
 			styxservers->traceset(Dflag);
 		'd' =>	dflag++;
-		* =>	sys->fprint(sys->fildes(2), "bad option\n");
-			arg->usage();
+		* =>	arg->usage();
 		}
 	args = arg->argv();
 	if(len args != 1)
@@ -171,12 +202,12 @@ init(nil: ref Draw->Context, args: list of string)
 	status = gettarget(sprint("(%s)", netname));
 	starttime = daytime->now();
 
-	ircinch = chan of (ref Rimsg, string, string);
-	ircoutch = chan[16] of array of byte;
-	ircerrch = chan of string;
-	daych = chan of int;
-	dialerrch = chan of string;
-	dialch = chan of (int, int);
+	ircinc = chan of (ref Rimsg, string, string);
+	ircoutc = chan[16] of array of byte;
+	ircerrc = chan of string;
+	dayc = chan of int;
+	dialerrc = chan of string;
+	dialc = chan of (int, int);
 	nextpingc = chan of int;
 	pingwatchc = chan of int;
 
@@ -196,7 +227,7 @@ main(msgc: chan of ref Tmsg)
 {
 done:
 	for(;;) alt {
-	<-daych =>
+	<-dayc =>
 		tm := daytime->local(daytime->now());
 		wdays := array[] of {"sun", "mon", "tues", "wednes", "thurs", "fri", "satur"};
 		daystr := sprint("! day changed, %d-%02d-%02d, %sday\n", tm.year+1900, tm.mon+1, tm.mday, wdays[tm.wday]);
@@ -210,41 +241,49 @@ done:
 	<-nextpingc =>
 		ping();
 
-	(m, line, err) := <-ircinch =>
+	(m, line, err) := <-ircinc =>
 		say(sprint("ircin, err %q, line %q", err, line));
-		doirc(m, line, err);
+		if(line != nil)
+			writefile(rawfile, ">>> "+line);
 
-	err := <-dialerrch =>
-		say(sprint("dialerrch, err %q", err));
+		if(err != nil) {
+			status.write(sprint("# bad irc message: %s (%s)\n", stripnewline(line), err));
+			continue;
+		}
+
+		doirc(m);
+
+	err := <-dialerrc =>
+		say(sprint("dialerrc, err %q", err));
 		status.write("# dial failed: "+err);
 		if(connectmsg != nil)
 			replyerror(connectmsg, err);
 		connectmsg = nil;
 		disconnect();
 
-	(rpid, wpid) := <-dialch =>
-		say(sprint("dialch, pids %d %d", rpid, wpid));
+	(rpid, wpid) := <-dialc =>
+		say(sprint("dialc, pids %d %d", rpid, wpid));
 		status.write("# remote dialed, connecting...\n");
 		changestate(Connecting);
 		readerpid = rpid;
 		writerpid = wpid;
 		# note: state is set to Connected when irc welcome message is read.
 
-	err := <-ircerrch =>
-		say(sprint("ircerrch, err %q", err));
+	err := <-ircerrc =>
+		say(sprint("ircerrc, err %q", err));
 		status.write("# irc connection error: "+err+"\n");
 		disconnect();
 
-	gm := <-msgc =>
+	mm := <-msgc =>
 		say("styx msg");
-		if(gm == nil)
+		if(mm == nil)
 			break done;
-		pick m := gm {
+		pick m := mm {
 		Readerror =>
 			warn("read error: "+m.error);
 			break done;
 		}
-		dostyx(gm);
+		dostyx(mm);
 	}
 	killgrp(pid());
 }
@@ -259,7 +298,7 @@ dayticker()
 		tm = daytime->local(daytime->now());
 		secs = 24*3600 - (tm.hour*3600+tm.min*60+tm.sec);
 		sys->sleep(secs*1000+200);
-		daych <-= 1;
+		dayc <-= 1;
 		sys->sleep(3600*1000);
 	}
 }
@@ -290,19 +329,11 @@ ping()
 	pingtime = daytime->now();
 }
 
-doirc(m: ref Rimsg, line, err: string)
+doirc(mm: ref Rimsg)
 {
-	if(line != nil)
-		writefile(rawfile, ">>> "+line);
-
-	if(err != nil) {
-		status.write(sprint("# bad irc message: %s (%s)\n", stripnewline(line), err));
-		return;
-	}
-
-	pick mm := m {
+	pick m := mm {
 	Ping =>
-		err = writemsg(ref Timsg.Pong(mm.who, mm.m));
+		err := writemsg(ref Timsg.Pong(m.who, m.m));
 		if(err != nil)
 			warn("writing pong: "+err);
 
@@ -314,46 +345,50 @@ doirc(m: ref Rimsg, line, err: string)
 		nextpingpid = <-pidc;
 
 	Notice =>
-		t := findtargetname(mm.where);
+		if(ischannel(m.where))
+			t := findtargetname(m.where);
+		if(t == nil && lowercase(m.where) == ic.lnick && m.f != nil)
+			t = findtargetname(m.f.nick);
 		if(t == nil)
 			t = status;
+
 		from := "";
-		if(mm.f != nil)
+		if(m.f != nil)
 			from = m.f.nick;
-		t.write(sprint("# %s %8s: %s\n", stamp(), from, mm.m));
+		t.write(sprint("# %s %8s: %s\n", stamp(), from, m.m));
 
 	Privmsg =>
 		server := nick := "";
-		if(mm.f != nil) {
+		if(m.f != nil) {
 			nick = m.f.nick;
-			server = mm.f.server;
+			server = m.f.server;
 		}
-		s := mm.m;
-		action := "\u0001ACTION ";
+		s := m.m;
+		action: con "\u0001ACTION ";
 		if(len s > len action && s[:len action] == action && s[len s-1] == 16r01)
 			s = sprint("%s *%s %s", stamp(), nick, s[len action:len s-1]);
 		else
 			s = sprint("%s %8s: %s", stamp(), nick, s);
-		targ := mm.where;
-		if(lowercase(mm.where) == ic.lnick)
+		targ := m.where;
+		if(lowercase(m.where) == ic.lnick)
 			targ = nick;
 		dwrite(targ, s);
 
 	Nick =>
-		if(ic.fromself(mm.f)) {
-			lastnick = ic.nick = mm.name;
+		if(ic.fromself(m.f)) {
+			lastnick = ic.nick = m.name;
 			ic.lnick = lowercase(ic.nick);
 			mwriteall(sprint("%s you are now known as %s", stamp(), ic.nick));
 			writefile(eventfile, sprint("nick %s\n", ic.nick));
 
-			# find our user & hostname
-			err = writemsg(ref Timsg.Whois(ic.nick));
+			# to find our user & hostname, for imsgselflen
+			err := writemsg(ref Timsg.Whois(ic.nick));
 			if(err != nil)
 				warn("writing whois request: "+err);
 			return;
 		}
 
-		lnick := lowercase(mm.f.nick);
+		lnick := lowercase(m.f.nick);
 		said := 0;
 		for(i := 0; i < len targets; i++) {
 			t := targets[i];
@@ -361,41 +396,41 @@ doirc(m: ref Rimsg, line, err: string)
 				continue;
 			if(hasnick(t.joined, lnick) || t.lname == lnick) {
 				t.newjoined = delnick(t.newjoined, lnick);
-				t.newjoined = addnick(t.newjoined, mm.name);
+				t.newjoined = addnick(t.newjoined, m.name);
 				t.joined = delnick(t.joined, lnick);
-				t.joined = addnick(t.joined, mm.name);
-				writefile(t.users, sprint("+%s\n-%s\n", mm.name, mm.f.nick));
-				mwrite(t.name, sprint("%s %s is now known as %s", stamp(), mm.f.nick, mm.name));
+				t.joined = addnick(t.joined, m.name);
+				writefile(t.users, sprint("+%s\n-%s\n", m.name, m.f.nick));
+				mwrite(t.name, sprint("%s %s is now known as %s", stamp(), m.f.nick, m.name));
 				said++;
 			}
 			if(t.lname == lnick) {
-				t.name = mm.name;
+				t.name = m.name;
 				t.lname = lowercase(t.name);
 			}
 		}
 		if(said == 0)
-			mwrite(mm.name, sprint("%s %s is now known as %s", stamp(), mm.f.nick, mm.name));
+			mwrite(m.name, sprint("%s %s is now known as %s", stamp(), m.f.nick, m.name));
 	Mode =>
 		modes := "";
-		for(l := mm.modes; l != nil; l = tl l) {
+		for(l := m.modes; l != nil; l = tl l) {
 			(mode, args) := (hd l);
 			modes += " "+mode;
 			for(; args != nil; args = tl args)
 				modes += " "+hd args;
 		}
-		s := sprint("%s mode%s by %s", stamp(), modes, mm.f.nick);
-		if(lowercase(mm.where) == ic.lnick)
+		s := sprint("%s mode%s by %s", stamp(), modes, m.f.nick);
+		if(lowercase(m.where) == ic.lnick)
 			status.write("# "+s+"\n");
 		else
-			mwrite(mm.where, s);
+			mwrite(m.where, s);
 	Quit =>
-		if(ic.fromself(mm.f)) {
-			mwriteall(sprint("%s you have quit from irc: %s", stamp(), mm.m));
+		if(ic.fromself(m.f)) {
+			mwriteall(sprint("%s you have quit from irc: %s", stamp(), m.m));
 			disconnect();
 			return;
 		}
 
-		lnick := lowercase(mm.f.nick);
+		lnick := lowercase(m.f.nick);
 		said := 0;
 		for(i := 0; i < len targets; i++) {
 			t := targets[i];
@@ -404,55 +439,57 @@ doirc(m: ref Rimsg, line, err: string)
 			t.newjoined = delnick(t.newjoined, lnick);
 			if(hasnick(t.joined, lnick) || t.lname == lnick) {
 				t.joined = delnick(t.joined, lnick);
-				writefile(t.users, sprint("-%s\n", mm.f.nick));
-				mwrite(t.name, sprint("%s %s (%s) has quit: %s", stamp(), mm.f.nick, mm.f.text(), mm.m));
+				writefile(t.users, sprint("-%s\n", m.f.nick));
+				mwrite(t.name, sprint("%s %s (%s) has quit: %s", stamp(), m.f.nick, m.f.text(), m.m));
 				said++;
 			}
 		}
 		if(said == 0)
-			mwrite(mm.f.nick, sprint("%s %s (%s) has quit: %s", stamp(), mm.f.nick, mm.f.text(), mm.m));
+			mwrite(m.f.nick, sprint("%s %s (%s) has quit: %s", stamp(), m.f.nick, m.f.text(), m.m));
 	Error =>
-		mwriteall(sprint("%s error: %s", stamp(), mm.m));
+		mwriteall(sprint("%s error: %s", stamp(), m.m));
 		disconnect();
 	Squit =>
-		mwriteall(sprint("%s squit: %s", stamp(), mm.m));
+		mwriteall(sprint("%s squit: %s", stamp(), m.m));
 	Join =>
-		t := gettarget(mm.where);
-		t.joined = addnick(t.joined, mm.f.nick);
-		t.newjoined = addnick(t.newjoined, mm.f.nick);
-		writefile(t.users, sprint("+%s\n", mm.f.nick));
-		mwrite(mm.where, sprint("%s %s (%s) has joined", stamp(), mm.f.nick, mm.f.text()));
+		t := gettarget(m.where);
+		t.joined = addnick(t.joined, m.f.nick);
+		t.newjoined = addnick(t.newjoined, m.f.nick);
+		writefile(t.users, sprint("+%s\n", m.f.nick));
+		mwrite(m.where, sprint("%s %s (%s) has joined", stamp(), m.f.nick, m.f.text()));
 	Part =>
-		t := gettarget(mm.where);
-		lnick := lowercase(mm.f.nick);
+		t := gettarget(m.where);
+		lnick := lowercase(m.f.nick);
 		t.joined = delnick(t.joined, lnick);
 		t.newjoined = delnick(t.newjoined, lnick);
-		writefile(t.users, sprint("-%s\n", mm.f.nick));
-		if(ic.fromself(mm.f)) {
-			mwrite(mm.where, sprint("%s you (%s) have left %s", stamp(), mm.f.text(), mm.where));
+		writefile(t.users, sprint("-%s\n", m.f.nick));
+		if(ic.fromself(m.f)) {
+			mwrite(m.where, sprint("%s you (%s) have left %s", stamp(), m.f.text(), m.where));
 			t.shutdown();
 		} else {
-			mwrite(mm.where, sprint("%s %s (%s) has left", stamp(), mm.f.nick, mm.f.text()));
+			mwrite(m.where, sprint("%s %s (%s) has left", stamp(), m.f.nick, m.f.text()));
 		}
 	Kick =>
-		t := gettarget(mm.where);
-		lwho := lowercase(mm.who);
+		t := gettarget(m.where);
+		lwho := lowercase(m.who);
 		t.newjoined = delnick(t.newjoined, lwho);
 		t.joined = delnick(t.joined, lwho);
-		writefile(t.users, sprint("-%s\n", mm.who));
+		writefile(t.users, sprint("-%s\n", m.who));
 		if(lwho == ic.lnick)
-			mwrite(mm.where, sprint("%s you have been kicked by %s (%s)", stamp(), mm.f.nick, mm.m));
+			mwrite(m.where, sprint("%s you have been kicked by %s (%s)", stamp(), m.f.nick, m.m));
 		else
-			mwrite(mm.where, sprint("%s %s has been kicked by %s (%s)", stamp(), mm.who, mm.f.nick, mm.m));
+			mwrite(m.where, sprint("%s %s has been kicked by %s (%s)", stamp(), m.who, m.f.nick, m.m));
 	Topic =>
-		mwrite(mm.where, sprint("%s new topic by %s: %s", stamp(), mm.f.nick, mm.m));
+		mwrite(m.where, sprint("%s new topic by %s: %s", stamp(), m.f.nick, m.m));
 	Invite =>
-		mwrite(mm.where, sprint("%s %s invites %s to join %s", stamp(), mm.f.nick, mm.who, mm.where));
-	Replytext or Errortext or Unknown =>
-		msg := concat(mm.params);
+		mwrite(m.where, sprint("%s %s invites %s to join %s", stamp(), m.f.nick, m.who, m.where));
+	Replytext or
+	Errortext or
+	Unknown =>
+		msg := concat(m.params);
 		silent := 0;
-		if(tagof mm == tagof Rimsg.Replytext)
-			case int mm.cmd {
+		if(tagof m == tagof Rimsg.Replytext)
+			case int m.cmd {
 			irc->RPLwelcome =>
 				if(state == Connecting) {
 					status.write("# connected");
@@ -461,13 +498,13 @@ doirc(m: ref Rimsg, line, err: string)
 					connectmsg = nil;
 					changestate(Connected);
 
-					# find our user & hostname
-					err = writemsg(ref Timsg.Whois(ic.nick));
+					# to find our user & hostname, for imsgselflen
+					err := writemsg(ref Timsg.Whois(ic.nick));
 					if(err != nil)
 						warn("writing whois request: "+err);
 
 					# first ping, to get the pong/nopong process going
-					ic.server = mm.f.server;
+					ic.server = m.f.server;
 					ping();
 				} else
 					warn("RPLwelcome while already connected");
@@ -476,10 +513,10 @@ doirc(m: ref Rimsg, line, err: string)
 			irc->RPLtopicset =>	msg = "topic set by: "+msg;
 			irc->RPLinviting =>	msg = "inviting: "+msg;
 			irc->RPLnames =>
-				if(len mm.params == 3) {
+				if(len m.params == 3) {
 					users := array[0] of string;
-					t := gettarget(mm.where);
-					(toks, nil) := tokens(mm.params[2], " ", -1);
+					t := gettarget(m.where);
+					(toks, nil) := tokens(m.params[2], " ", -1);
 					for(; toks != nil; toks = tl toks) {
 						nick := name := hd toks;
 						if(nick != nil && (nick[0] == '@' || nick[0] == '+'))
@@ -490,7 +527,7 @@ doirc(m: ref Rimsg, line, err: string)
 					msg = "users: "+concat(users);
 				}
 			irc->RPLnamesdone =>
-				t := gettarget(mm.where);
+				t := gettarget(m.where);
 				diff := "";
 				for(i := 0; i < len t.joined; i++)
 					diff += sprint("-%s\n", t.joined[i]);
@@ -503,10 +540,9 @@ doirc(m: ref Rimsg, line, err: string)
 				msg = "end users";
 
 			irc->RPLaway =>	
-				t := findtargetname(mm.where);
-				if(t == nil || t.dead) {
+				t := findtargetname(m.where);
+				if(t == nil || t.dead)
 					t = status;
-				}
 				now := daytime->now();
 				if(t.mtime+10*60 >= now && msg == t.prevaway)
 					silent = 1;
@@ -517,39 +553,45 @@ doirc(m: ref Rimsg, line, err: string)
 					mwrite(t.name, sprint("%s %s", stamp(), msg));
 				silent = 1;
 
-			irc->RPLwhoisuser or irc->RPLwhoischannels or irc->RPLwhoisidle or irc->RPLendofwhois or irc->RPLwhoisserver or irc->RPLwhoisoperator =>
-				t := findtargetname(mm.where);
+			irc->RPLwhoisuser or
+			irc->RPLwhoischannels or
+			irc->RPLwhoisidle or
+			irc->RPLendofwhois or
+			irc->RPLwhoisserver or
+			irc->RPLwhoisoperator =>
+				t := findtargetname(m.where);
 				if(t == nil || t.dead)
 					t = status;
 				mwrite(t.name, sprint("%s %s", stamp(), msg));
 				silent = 1;
 
 				# whois response on ourself.  gives approx how many of 512 bytes of irc message is taken by our 'from'.
-				if(int mm.cmd == irc->RPLwhoisuser && mm.where == ic.lnick && len mm.params >= 2) {
-					user := mm.params[0];
-					host := mm.params[1];
+				if(int m.cmd == irc->RPLwhoisuser && m.where == ic.lnick && len m.params >= 2) {
+					user := m.params[0];
+					host := m.params[1];
 					# ":nick!user@host "
 					imsgselflen = 1+len ic.lnick+1+len user+1+len host+1;
 				}
 
-			irc->RPLchannelmode =>	msg = "mode "+msg;
-			irc->RPLchannelmodechanged =>	msg = "mode changed "+msg;
+			irc->RPLchannelmode =>
+				msg = "mode "+msg;
+			irc->RPLchannelmodechanged =>
+				msg = "mode changed "+msg;
 			}
 		if(!silent) {
-			if(mm.where != nil)
-				mwrite(mm.where, sprint("%s %s", stamp(), msg));
+			if(m.where != nil)
+				mwrite(m.where, sprint("%s %s", stamp(), msg));
 			else
 				status.write(sprint("# %s %s\n", stamp(), msg));
 		}
 	* =>
-		mwrite(netname, sprint("%s %s", stamp(), mm.text()));
+		mwrite(netname, sprint("%s %s", stamp(), m.text()));
 	}
-
 }
 
-dostyx(gm: ref Tmsg)
+dostyx(mm: ref Tmsg)
 {
-	pick m := gm {
+	pick m := mm {
 	Open =>
 		(fid, mode, nil, err) := srv.canopen(m);
 		if(fid == nil)
@@ -568,12 +610,8 @@ dostyx(gm: ref Tmsg)
 		Qdata =>
 			if(t == nil)
 				return replyerror(m, Etarget);
-			say(sprint("mode=%x oread=%x", mode, Sys->OREAD));
-			if(mode == Sys->OREAD || mode == Sys->ORDWR) {
-				case q {
-				Qdata =>
-					t.data = addfidfile(t.data, Fidfile.new(fid, t));
-				}
+			if((mode == Sys->OREAD || mode == Sys->ORDWR) && q == Qdata) {
+				t.data = addfidfile(t.data, Fidfile.new(fid, t));
 				say("new data fidfile inserted");
 			}
 
@@ -619,7 +657,8 @@ dostyx(gm: ref Tmsg)
 		if(state != Connected && q != Qrootctl && q != Qctl && t.id != 0)
 			return replyerror(m, Enocon);
 		case q {
-		Qrootctl or Qctl =>
+		Qrootctl
+		or Qctl =>
 			ctl(m, t);
 		Qraw =>
 			l := stripnewline(string m.data);
@@ -644,7 +683,8 @@ dostyx(gm: ref Tmsg)
 			replyerror(m, "internal error");
 		}
 
-	Clunk or Remove =>
+	Clunk or
+	Remove =>
 		f := srv.getfid(m.fid);
 		if(f != nil && f.isopen) {
 			t := findtarget(int f.path>>8);
@@ -680,22 +720,14 @@ dostyx(gm: ref Tmsg)
 		if(state != Connected && q != Qevent && t.id != 0)
 			return replyerror(m, Enocon);
 		case q {
-		Qraw =>
-			fidread(rawfile, f, m, nil);
-		Qevent =>
-			fidread(eventfile, f, m, nil);
-		Qnick =>
-			srv.reply(styxservers->readstr(m, ic.nick));
-		Qpong =>
-			fidread(pongfile, f, m, nil);
-		Qname =>
-			srv.reply(styxservers->readstr(m, t.name));
-		Qusers =>
-			fidread(t.users, f, m, nil);
-		Qdata =>
-			fidread(t.data, f, m, t);
-		* =>
-			srv.default(m);
+		Qraw =>		fidread(rawfile, f, m, nil);
+		Qevent =>	fidread(eventfile, f, m, nil);
+		Qpong =>	fidread(pongfile, f, m, nil);
+		Qusers =>	fidread(t.users, f, m, nil);
+		Qdata =>	fidread(t.data, f, m, t);
+		Qnick =>	srv.reply(styxservers->readstr(m, ic.nick));
+		Qname =>	srv.reply(styxservers->readstr(m, t.name));
+		* =>		srv.default(m);
 		}
 
 	Wstat =>
@@ -717,109 +749,109 @@ dostyx(gm: ref Tmsg)
 		srv.reply(ref Rmsg.Wstat(m.tag));
 
 	Flush =>
-		if(connectmsg != nil && connectmsg.tag == m.oldtag) {
+		if(connectmsg != nil && connectmsg.tag == m.oldtag)
 			connectmsg = nil;
-			return;
-		}
 
 		have := fidflush(eventfile, m.oldtag) || fidflush(rawfile, m.oldtag) || fidflush(pongfile, m.oldtag);
 		for(i := 0; !have && i < len targets; i++)
 			have = fidflush(targets[i].data, m.oldtag);
-		srv.default(gm);
+		srv.default(mm);
 
 	* =>
-		srv.default(gm);
+		srv.default(mm);
 	}
 }
 
 navigator(c: chan of ref Navop)
 {
-again:
-	for(;;) {
-		navop := <-c;
-		say("have navop");
-		id := int navop.path>>8;
-		q := int navop.path&16rff;
-		t := findtarget(id);
-		pick op := navop {
-		Stat =>
-			say("navop stat");
-			if(t == nil || t.dead)
-				navop.reply <-= (nil, Edead);
-			else
-				navop.reply <-= (dir(int op.path, t.mtime), nil);
+	for(;;)
+		navigate(<-c);
+}
 
-		Walk =>
-			say("navop walk");
-			if(op.name == "..") {
-				destq := Qroot;
-				mtime := starttime;
-				if(q >= Qctl && q <= Qdata) {
-					destq = Qdir|(id<<8);
-					mtime = t.mtime;
-				}
-				op.reply <-= (dir(destq, mtime), nil);
-				continue again;
+navigate(navop: ref Navop)
+{
+	say("have navop");
+	id := int navop.path>>8;
+	q := int navop.path&16rff;
+	t := findtarget(id);
+	pick op := navop {
+	Stat =>
+		say("navop stat");
+		if(t == nil || t.dead)
+			navop.reply <-= (nil, Edead);
+		else
+			navop.reply <-= (dir(int op.path, t.mtime), nil);
+
+	Walk =>
+		say("navop walk");
+		if(op.name == "..") {
+			destq := Qroot;
+			mtime := starttime;
+			if(q >= Qctl && q <= Qdata) {
+				destq = Qdir|(id<<8);
+				mtime = t.mtime;
 			}
+			op.reply <-= (dir(destq, mtime), nil);
+			return;
+		}
 
-			case q {
-			Qroot =>
-				for(i := Qrootctl; i <= Qpong; i++)
-					if(files[i].t1 == op.name) {
-						op.reply <-= (dir(files[i].t0, starttime), nil);
-						continue again;
-					}
-				(wid, rem) := str->toint(op.name, 10);
-				if(rem == nil && (newt := findtarget(wid)) != nil) {
-					op.reply <-= (dir(Qdir|wid<<8, newt.mtime), nil);
-					continue again;
+		case q {
+		Qroot =>
+			for(i := Qrootctl; i <= Qpong; i++)
+				if(files[i].t1 == op.name) {
+					op.reply <-= (dir(files[i].t0, starttime), nil);
+					return;
 				}
-				op.reply <-= (nil, Enotfound);
-
-			Qdir =>
-				if(t == nil || t.dead) {
-					op.reply <-= (nil, Edead);
-					continue again;
-				}
-				for(i := Qctl; i <= Qdata; i++) {
-					(nil, name, nil) := files[i];
-					if(op.name == name) {
-						op.reply <-= (dir(i|(id<<8), t.mtime), nil);
-						continue again;
-					}
-				}
-				op.reply <-= (nil, Enotfound);
-
-			* =>
-				op.reply <-= (nil, Enotdir);
+			(wid, rem) := str->toint(op.name, 10);
+			if(rem == nil && (newt := findtarget(wid)) != nil) {
+				op.reply <-= (dir(Qdir|wid<<8, newt.mtime), nil);
+				return;
 			}
-		Readdir =>
-			say("navop readdir");
+			op.reply <-= (nil, Enotfound);
+
+		Qdir =>
 			if(t == nil || t.dead) {
 				op.reply <-= (nil, Edead);
-				continue again;
+				return;
 			}
-			if(int op.path == Qroot) {
-				nfixed: con Qpong+1-Qrootctl;
-				have := 0;
-				for(i := op.offset; have < op.count && i < nfixed+len targets; i++)
-					case i {
-					0 to nfixed-1 =>
-						op.reply <-= (dir(Qrootctl+i, starttime), nil);
-						have++;
-					* =>
-						off := i-nfixed;
-						if(!targets[off].dead) {
-							op.reply <-= (dir(Qdir|(targets[off].id<<8), targets[off].mtime), nil);
-							have++;
-						}
-					}
-			} else {
-				for(i := 0; i < op.count && op.offset+i <= Qdata-Qctl; i++)
-					op.reply <-= (dir((int op.path&~16rff)|i+Qctl, t.mtime), nil);
+			for(i := Qctl; i <= Qdata; i++) {
+				(nil, name, nil) := files[i];
+				if(op.name == name) {
+					op.reply <-= (dir(i|(id<<8), t.mtime), nil);
+					return;
+				}
 			}
-			op.reply <-= (nil, nil);
+			op.reply <-= (nil, Enotfound);
+
+		* =>
+			op.reply <-= (nil, Enotdir);
 		}
+	Readdir =>
+		say("navop readdir");
+		if(t == nil || t.dead) {
+			op.reply <-= (nil, Edead);
+			return;
+		}
+		if(int op.path == Qroot) {
+			nfixed: con Qpong+1-Qrootctl;
+			have := 0;
+			for(i := op.offset; have < op.count && i < nfixed+len targets; i++)
+				case i {
+				0 to nfixed-1 =>
+					op.reply <-= (dir(Qrootctl+i, starttime), nil);
+					have++;
+				* =>
+					off := i-nfixed;
+					if(!targets[off].dead) {
+						op.reply <-= (dir(Qdir|(targets[off].id<<8), targets[off].mtime), nil);
+						have++;
+					}
+				}
+		} else {
+			for(i := 0; i < op.count && op.offset+i <= Qdata-Qctl; i++)
+				op.reply <-= (dir((int op.path&~16rff)|i+Qctl, t.mtime), nil);
+		}
+		op.reply <-= (nil, nil);
 	}
 }
 
@@ -858,7 +890,8 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 
 	err: string;
 	case cmd {
-	"connect" or "reconnect" =>
+	"connect" or
+	"reconnect" =>
 		if(state != Disconnected)
 			return replyerror(m, "already connected or connecting");
 
@@ -884,9 +917,9 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		}
 
 		changestate(Dialing);
-		ircinch = chan of (ref Rimsg, string, string);
-		ircoutch = chan[16] of array of byte;
-		ircerrch = chan of string;
+		ircinc = chan of (ref Rimsg, string, string);
+		ircoutc = chan[16] of array of byte;
+		ircerrc = chan of string;
 
 		connectmsg = m;
 		spawn ircreader(lastaddr, lastfromhost, lastnick, lastpass);
@@ -922,7 +955,8 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		err = writemsg(ref Timsg.Mode(ic.nick, rem::nil));
 	"whois" =>
 		err = writemsg(ref Timsg.Whois(rem));
-	"names" or "n" =>
+	"names" or
+	"n" =>
 		if(t.id == 0 || !t.ischan)
 			return replyerror(m, Enotchan);
 		err = writemsg(ref Timsg.Names(t.name));
@@ -941,6 +975,8 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 
 	"msg" =>
 		(name, s) := tokens(rem, " ", 1);
+		if(name == nil || s == nil)
+			return replyerror(m, Ebadctl);
 		err = writemsg(ref Timsg.Privmsg(hd name, s));
 		if(err == nil)
 			sdwrite(hd name, sprint("%s %8s: %s", stamp(), ic.nick, s));
@@ -952,7 +988,9 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		(inick, ichan) := (hd iargs, hd tl iargs);
 		err = writemsg(ref Timsg.Invite(inick, ichan));
 
-	"version" or "time" or "ping" =>
+	"version" or
+	"time" or
+	"ping" =>
 		if(t.id == 0)
 			return replyerror(m, Estatus);
 		if(rem != nil)
@@ -960,6 +998,15 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		err = writemsg(ref Timsg.Privmsg(t.name, sprint("\u0001%s\u0001", str->toupper(cmd))));
 		if(err == nil)
 			mwrite(t.name, sprint("%s requested irc client %s", stamp(), cmd));
+
+	"ctcp" =>
+		if(t.id == 0)
+			return replyerror(m, Estatus);
+		if(rem == nil)
+			return replyerror(m, Ebadctl);
+		err = writemsg(ref Timsg.Privmsg(t.name, sprint("\u0001%s\u0001", rem)));
+		if(err == nil)
+			mwrite(t.name, sprint("%s sent ctcp: %s", stamp(), rem));
 
 	"kick" =>
 		if(t.id == 0 || !t.ischan)
@@ -969,7 +1016,12 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 			return replyerror(m, "missing nick");
 		err = writemsg(ref Timsg.Kick(t.name, hd toks, rem));
 
-	"op" or "deop" or "ban" or "unban" or "voice" or "devoice" =>
+	"op" or
+	"deop" or
+	"ban" or
+	"unban" or
+	"voice" or
+	"devoice" =>
 		if(t.id == 0 || !t.ischan)
 			return replyerror(m, Enotchan);
 		way := "+";
@@ -977,7 +1029,7 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 			way = "-";
 			cmd = cmd[2:];
 		}
-		mode := cmd[0:1];
+		mode := cmd[:1];
 		(toks, nil) = tokens(rem, " ", -1);
 		while(toks != nil && err == nil) {
 			modes: list of string;
@@ -1059,35 +1111,6 @@ connectstatus(): string
 	}
 }
 
-concat(a: array of string): string
-{
-	s := "";
-	for(i := 0; i < len a; i++)
-		s += " "+a[i];
-	if(s != nil)
-		s = s[1:];
-	return s;
-}
-
-tokens(s, splitstr: string, n: int): (list of string, string)
-{
-	if(s != nil && s[len s-1] == '\n')
-		s = s[:len s-1];
-	
-	elem: string;
-	toks: list of string;
-	rem := s;
-	while(n-- != 0 && rem != nil) {
-		(elem, rem) = str->splitstrl(rem, splitstr);
-		if(rem != nil)
-			rem = rem[1:];
-		toks = elem::toks;
-	}
-	if(n > 0)
-		return (nil, s);
-	return (lists->reverse(toks), rem);
-}
-
 # dial with a local hostname (which is translated using /net/cs)
 dialfancy(addr: string, fromhost: string): (ref (ref Sys->FD, ref Sys->FD), string)
 {
@@ -1151,7 +1174,7 @@ ircreader(addr, fromhost, newnick, newpass: string)
 		say("dialing");
 		(ok, conn) := sys->dial(addr, nil);
 		if(ok < 0) {
-			dialerrch <-= sprint("dial %s: %r", addr);
+			dialerrc <-= sprint("dial %s: %r", addr);
 			return;
 		}
 		dfd = conn.dfd;
@@ -1160,7 +1183,7 @@ ircreader(addr, fromhost, newnick, newpass: string)
 		say("dialing with bind and connect");
 		(fds, err) := dialfancy(addr, fromhost);
 		if(err != nil) {
-			dialerrch <-= "dial: "+err;
+			dialerrc <-= "dial: "+err;
 			return;
 		}
 		(cfd, dfd) = *fds;
@@ -1169,25 +1192,25 @@ ircreader(addr, fromhost, newnick, newpass: string)
 	say("connected");
 
 	err: string;
-	(ic, err) = Ircc.new(dfd, addr, newnick, newnick, newpass);
+	(ic, err) = Irccon.new(dfd, addr, newnick, newnick, newpass);
 	if(err != nil) {
-		dialerrch <-= err;
+		dialerrc <-= err;
 		return;
 	}
 	spawn ircwriter(pidc := chan of int, dfd);
 	say("new ircc");
 	wpid := <-pidc;
-	dialch <-= (pid(), wpid);
+	dialc <-= (pid(), wpid);
 
 	for(;;) {
 		(m, l, merr) := ic.readmsg();
 		if(l == nil) {
-			ircerrch <-= merr;
+			ircerrc <-= merr;
 			break;
 		}
 		if(m != nil)
 			say("have imsg: "+m.text());
-		ircinch <-= (m, l, merr);
+		ircinc <-= (m, l, merr);
 	}
 }
 
@@ -1196,11 +1219,11 @@ ircwriter(pidc: chan of int, fd: ref Sys->FD)
 	pidc <-= pid();
 	say("ircwriter");
 	for(;;) {
-		d := <-ircoutch;
+		d := <-ircoutc;
 		if(d == nil)
 			break;
 		if(sys->write(fd, d, len d) != len d) {
-			ircerrch <-= sprint("writing irc message: %r");
+			ircerrc <-= sprint("writing irc message: %r");
 			break;
 		}
 	}
@@ -1254,13 +1277,6 @@ delfidfile(a: array of ref Fidfile, f: ref Fid): array of ref Fidfile
 			break;
 		}
 	return a;
-}
-
-grow[T](d: array of T, n: int): array of T
-{
-	r := array[len d+n] of T;
-	r[:] = d;
-	return r;
 }
 
 Fidfile.new(fid: ref Fid, t: ref Target): ref Fidfile
@@ -1463,7 +1479,7 @@ writeraw(s: string): string
 	if(len d+imsgselflen > Irc->Maximsglen)
 		return "line too long";
 	alt {
-	ircoutch <-= d =>
+	ircoutc <-= d =>
 		writefile(rawfile, "<<< "+s);
 		return nil;
 	* =>
@@ -1476,6 +1492,43 @@ writemsg(m: ref Timsg): string
 	say("writing message: "+m.text());
 	packed := m.pack();
 	return writeraw(packed);
+}
+
+
+concat(a: array of string): string
+{
+	s := "";
+	for(i := 0; i < len a; i++)
+		s += " "+a[i];
+	if(s != nil)
+		s = s[1:];
+	return s;
+}
+
+tokens(s, splitstr: string, n: int): (list of string, string)
+{
+	if(s != nil && s[len s-1] == '\n')
+		s = s[:len s-1];
+	
+	elem: string;
+	toks: list of string;
+	rem := s;
+	while(n-- != 0 && rem != nil) {
+		(elem, rem) = str->splitstrl(rem, splitstr);
+		if(rem != nil)
+			rem = rem[1:];
+		toks = elem::toks;
+	}
+	if(n > 0)
+		return (nil, s);
+	return (lists->reverse(toks), rem);
+}
+
+grow[T](d: array of T, n: int): array of T
+{
+	r := array[len d+n] of T;
+	r[:] = d;
+	return r;
 }
 
 add[T](a: array of T, e: T): array of T

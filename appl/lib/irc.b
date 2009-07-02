@@ -67,13 +67,13 @@ rev(l: list of string): list of string
 	return r;
 }
 
-Ircc.new(fd: ref Sys->FD, addr, nick, name, pass: string): (ref Ircc, string)
+Irccon.new(fd: ref Sys->FD, addr, nick, name, pass: string): (ref Irccon, string)
 {
 	b := bufio->fopen(fd, Bufio->OREAD);
 	if(b == nil)
 		return (nil, sprint("bufio fopen: %r"));
 
-	c := ref Ircc(fd, b, addr, nick, lowercase(nick), nil);
+	c := ref Irccon(fd, b, addr, nick, lowercase(nick), nil);
 	if(pass != nil)
 		err := c.writemsg(ref Timsg.Pass(pass));
 	if(err == nil) err = c.writemsg(ref Timsg.Nick(nick));
@@ -83,7 +83,7 @@ Ircc.new(fd: ref Sys->FD, addr, nick, name, pass: string): (ref Ircc, string)
 	return (c, nil);
 }
 
-Ircc.readmsg(c: self ref Ircc): (ref Rimsg, string, string)
+Irccon.readmsg(c: self ref Irccon): (ref Rimsg, string, string)
 {
 	l := c.b.gets('\n');
 	if(l == nil)
@@ -92,7 +92,7 @@ Ircc.readmsg(c: self ref Ircc): (ref Rimsg, string, string)
 	return (m, l, err);
 }
 
-Ircc.writemsg(c: self ref Ircc, m: ref Timsg): string
+Irccon.writemsg(c: self ref Irccon, m: ref Timsg): string
 {
 	d := array of byte m.pack();
 	if(sys->write(c.fd, d, len d) != len d)
@@ -100,7 +100,7 @@ Ircc.writemsg(c: self ref Ircc, m: ref Timsg): string
 	return nil;
 }
 
-Ircc.fromself(c: self ref Ircc, f: ref From): int
+Irccon.fromself(c: self ref Irccon, f: ref From): int
 {
 	return c.lnick == lowercase(f.nick);
 }

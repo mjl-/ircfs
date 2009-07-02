@@ -26,17 +26,17 @@ Irc: module {
 	ischannel:	fn(name: string): int;
 	lowercase:	fn(name: string): string;
 
-	Ircc: adt {
+	Irccon: adt {
 		fd:	ref Sys->FD;
 		b:	ref Bufio->Iobuf;
 		addr:	string;
 		nick, lnick:	string;
 		server:	string;
 
-		new:	fn(fd: ref Sys->FD, addr: string, nick, name, pass: string): (ref Ircc, string);
-		readmsg:	fn(c: self ref Ircc): (ref Rimsg, string, string);
-		writemsg:	fn(c: self ref Ircc, m: ref Timsg): string;
-		fromself:	fn(c: self ref Ircc, f: ref From): int;
+		new:	fn(fd: ref Sys->FD, addr: string, nick, name, pass: string): (ref Irccon, string);
+		readmsg:	fn(c: self ref Irccon): (ref Rimsg, string, string);
+		writemsg:	fn(c: self ref Irccon, m: ref Timsg): string;
+		fromself:	fn(c: self ref Irccon, f: ref From): int;
 	};
 
 	From: adt {

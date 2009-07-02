@@ -1024,7 +1024,7 @@ Win.writectl(ww: self ref Win, s: string): string
 Win.addline(w: self ref Win, l: string, tag: string)
 {
 	if(w.nlines >= Windowlinesmax)
-		tkcmd(sprint(".%s delete 1.0 1.end", w.tkid));
+		tkcmd(sprint(".%s delete 1.0 2.0", w.tkid));
 	else
 		w.nlines++;
 

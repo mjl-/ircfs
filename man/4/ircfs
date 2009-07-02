@@ -95,12 +95,17 @@ invite
 .IR "nick channel" ,
 msg
 .IR "nick|channel msg" ,
-and
 time,
 version
 and
 ping
-(these last three are ctcp messages).  Reconnect performs a reconnect with the parameters from the previous connection.  Commands are issued directly to the irc server.  Responses from the irc server can be read from the status directory data file
+(ctcp messages), and
+ctcp
+.IR [request] .
+Reconnect performs a reconnect with the parameters from the previous
+connection.  Commands are issued directly to the irc server.
+Responses from the irc server can be read from the status directory
+data file
 .IR /0/data .
 The responses are free-form and cannot be matched to specific commands (the irc protocol does not contain the necessary information).
 .TP

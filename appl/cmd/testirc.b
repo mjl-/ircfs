@@ -8,7 +8,7 @@ include "arg.m";
 include "bufio.m";
 include "irc.m";
 	irc: Irc;
-	Ircc, Timsg, Rimsg, From: import irc;
+	Irccon, Timsg, Rimsg, From: import irc;
 
 dflag: int;
 addr: string;
@@ -42,7 +42,7 @@ init(nil: ref Draw->Context, args: list of string)
 		fail(sprint("dial %s: %r", addr));
 	say("connected");
 
-	(ic, err) := Ircc.new(conn.dfd, addr, "itestirc", "itestirc", nil);
+	(ic, err) := Irccon.new(conn.dfd, addr, "itestirc", "itestirc", nil);
 	if(err != nil)
 		fail(err);
 	say("new ircc");
