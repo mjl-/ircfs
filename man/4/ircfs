@@ -2,7 +2,7 @@
 .SH NAME
 ircfs \- irc file server
 .SH SYNOPSIS
-.B ircfs
+.RB "mount { " ircfs
 [
 .B -Ddt
 ] [
@@ -21,7 +21,8 @@ ircfs \- irc file server
 .B -l
 .I logpath
 ]
-.I netname
+.IR netname
+} mtpt
 .SH DESCRIPTION
 .B Ircfs
 maintains a connection to an irc server and exports it using styx.
