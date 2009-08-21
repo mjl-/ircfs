@@ -24,6 +24,9 @@ compile and install.  NOTE: just "mk" does not work, since the
 module files (*.m) will be missing and compilation of source files
 (*.b) will fail.
 
+when building from within inferno, insert SYSHOST=Inferno and ROOT=
+in the mk invocations to override the values in the mkconfig.
+
 
 # documentation
 
@@ -77,12 +80,15 @@ the mount and styxlisten calls earlier by "-k $home/keyring/ircfs".
 
 # todo
 
+- ircfs+wm/irc: find a way to allow access to targets after a disconnect.
+- wm/irc: getting response (pong) after getting nothing/nopoing should clear the ~ status
+- ircfs: should not let pong/nopong messages fill up a fidfile when noone is reading.  we only have to keep one message around.
+- ircfs: "no such nick" messages (in response to privmsg or whois) should go to user window.  it's an error code (but which?)
 - ircfs: sometimes old lines are reinserted in the data file.  probably something wrong with accounting of the lines for the data file.
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
 - wm/irc: acme-like chording doesn't work when selecting text by double-click.  fix that.
 - wm/irc: make adding a window faster, so startup with many windows becomes faster.
 - wm/irc: a ridiculous amount of cpu is used when moving the mouse over the irc window.
-- ircfs+wm/irc: find a way to allow access to targets after a disconnect.
 
 - ircfs: when people come online (in channel) and have a window, put a meta-message in the window?  idea from sqweek
 - read irc rfc's, try on many networks/channels

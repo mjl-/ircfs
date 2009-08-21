@@ -70,22 +70,17 @@ Enable debugging output.
 Commands can be entered in the input entry at the bottom of the screen.
 All lines starting with a slash are treated as commands.
 Lines starting with two slashes are treated as text with one slash removed.
-Wm/irc determines whether the command is one of its own commands and handles it immediately if so.
-Otherwise, it is written to the
+Wm/irc handles the command "win" itself, all other commands are passed on the
 .I ctl
 file of the corresponding irc directory.
 See
 .IR ircfs (4)
 for commands understood by ircfs.
 
-Commands handled by wm/irc:
+The parameters to "win" are itself considered as a command:
 .TP
-.B close
-Closes the current
-.IR window .
-Note that it does not issue a part command to ircfs.
 .TP
-.B exit
+.BR exit " or " quit
 Exit
 .BR wm/irc .
 Note that it does not issue a quit command to ircfs.
@@ -100,11 +95,18 @@ was specified, a window is opened for each irc directory.
 .BI del
 Remove all references (including windows) to the ircfs of the current window.
 .TP
-.BI addwin " id"
+.BI open " id"
 Open the irc directory
 .I id
 of the ircfs of the current window, e.g.
 .IR /mnt/irc/ircnet/id/ .
+.B close
+Closes the current
+.IR window .
+Note that it does not issue a part command to ircfs.
+Use ircfs's
+.I remove
+command to part the irc directory and afterwards close the window.
 .TP
 .B clear
 Clear the currently visible window.

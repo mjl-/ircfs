@@ -5,8 +5,9 @@
 #
 # an open file is represented by a Fidfile.  e.g. a Target's "data"
 # or "users" is represented as an array of Fidfile's.
-# a Fidfile is an array of buffers, writing to a Fidfile just appends
-# to the buffer and responds to as many pending styx reads as possible.
+# a Fidfile is an array of buffers and an array of styx reads.
+# adding data to a Fidfile just appends to the buffers array.  a styx read is appended to the reads array.
+# after a data write/styx read, as many styx reads as possible are returned for the data available.
 #
 # threads:
 # - main, styx & irc messages and other events go here.  main owns almost all data structures.
@@ -49,7 +50,7 @@ include "irc.m";
 	lowercase, ischannel, Irccon, Timsg, Rimsg, From: import irc;
 
 Etarget: 	con "no such target";
-Edead:		con "file closed";
+Eeof:		con "target closed";
 Enocon:		con "not connected";
 Estatus:	con "invalid on status file";
 Enotchan:	con "only works on channel";
@@ -105,8 +106,9 @@ Target: adt {
 	end:	int;
 	joined,		# cased users currently joined, and 
 	newjoined:	array of string;	# new list of joined users currently constructed
-	dead:	int;
-	opens:	int;	# ref count, Target is removed if dead and no opens
+	eof:	int;	# whether no more new data will arrive
+	opens:	int;	# ref count, if eof && remove && opens==0, we remove a target
+	remove:	int;	# whether to remove target on eof
 	prevaway:	string;
 	mtime:	int;
 
@@ -124,7 +126,7 @@ Fidfile: adt {
 	a:	array of array of byte;
 
 	new:		fn(fid: ref Fid, t: ref Target): ref Fidfile;
-	write:	fn(f: self ref Fidfile, s: string);
+	write:		fn(f: self ref Fidfile, s: string);
 	putdata:	fn(f: self ref Fidfile, s: string);
 	putread:	fn(f: self ref Fidfile, m: ref Tmsg.Read);
 	styxop:		fn(f: self ref Fidfile, t: ref Target): ref Rmsg.Read;
@@ -225,14 +227,14 @@ init(nil: ref Draw->Context, args: list of string)
 
 main(msgc: chan of ref Tmsg)
 {
-done:
+Done:
 	for(;;) alt {
 	<-dayc =>
 		tm := daytime->local(daytime->now());
 		wdays := array[] of {"sun", "mon", "tues", "wednes", "thurs", "fri", "satur"};
 		daystr := sprint("! day changed, %d-%02d-%02d, %sday\n", tm.year+1900, tm.mon+1, tm.mday, wdays[tm.wday]);
 		for(i := 0; i < len targets; i++)
-			if(!targets[i].dead)
+			if(!targets[i].eof)
 				targets[i].write(daystr);
 
 	<-pingwatchc =>
@@ -277,11 +279,11 @@ done:
 	mm := <-msgc =>
 		say("styx msg");
 		if(mm == nil)
-			break done;
+			break Done;
 		pick m := mm {
 		Readerror =>
 			warn("read error: "+m.error);
-			break done;
+			break Done;
 		}
 		dostyx(mm);
 	}
@@ -392,7 +394,7 @@ doirc(mm: ref Rimsg)
 		said := 0;
 		for(i := 0; i < len targets; i++) {
 			t := targets[i];
-			if(t.dead)
+			if(t.eof)
 				continue;
 			if(hasnick(t.joined, lnick) || t.lname == lnick) {
 				t.newjoined = delnick(t.newjoined, lnick);
@@ -434,7 +436,7 @@ doirc(mm: ref Rimsg)
 		said := 0;
 		for(i := 0; i < len targets; i++) {
 			t := targets[i];
-			if(t.dead)
+			if(t.eof)
 				continue;
 			t.newjoined = delnick(t.newjoined, lnick);
 			if(hasnick(t.joined, lnick) || t.lname == lnick) {
@@ -465,7 +467,7 @@ doirc(mm: ref Rimsg)
 		writefile(t.users, sprint("-%s\n", m.f.nick));
 		if(ic.fromself(m.f)) {
 			mwrite(m.where, sprint("%s you (%s) have left %s", stamp(), m.f.text(), m.where));
-			t.shutdown();
+			shutdown(t);
 		} else {
 			mwrite(m.where, sprint("%s %s (%s) has left", stamp(), m.f.nick, m.f.text()));
 		}
@@ -541,7 +543,7 @@ doirc(mm: ref Rimsg)
 
 			irc->RPLaway =>	
 				t := findtargetname(m.where);
-				if(t == nil || t.dead)
+				if(t == nil || t.eof)
 					t = status;
 				now := daytime->now();
 				if(t.mtime+10*60 >= now && msg == t.prevaway)
@@ -560,7 +562,7 @@ doirc(mm: ref Rimsg)
 			irc->RPLwhoisserver or
 			irc->RPLwhoisoperator =>
 				t := findtargetname(m.where);
-				if(t == nil || t.dead)
+				if(t == nil || t.eof)
 					t = status;
 				mwrite(t.name, sprint("%s %s", stamp(), msg));
 				silent = 1;
@@ -599,17 +601,22 @@ dostyx(mm: ref Tmsg)
 		q := int fid.path&16rff;
 
 		t := findtarget(int fid.path>>8);
-		if(t == nil || t.dead)
-			return replyerror(m, Edead);
+		if(t == nil)
+			return replyerror(m, Eeof);
 
 		# during disconnect, we only allow ops on / (for readdir), ctl (to connect), and status dir.
 		if(state != Connected && q != Qroot && q != Qrootctl && q != Qevent && t.id != 0)
 			return replyerror(m, Enocon);
 
 		case q {
+		Qusers =>
+			ff := Fidfile.new(fid, nil);
+			for(i := 0; i < len t.joined; i++)
+				ff.putdata(sprint("+%s\n", t.joined[i]));
+			t.users = addfidfile(t.users, ff);
+			say("new usersfile fidfile inserted");
+
 		Qdata =>
-			if(t == nil)
-				return replyerror(m, Etarget);
 			if((mode == Sys->OREAD || mode == Sys->ORDWR) && q == Qdata) {
 				t.data = addfidfile(t.data, Fidfile.new(fid, t));
 				say("new data fidfile inserted");
@@ -619,7 +626,7 @@ dostyx(mm: ref Tmsg)
 			ff := Fidfile.new(fid, nil);
 			ff.putdata(connectstatus()+"\n");
 			for(i := 0; i < len targets; i++)
-				if(!targets[i].dead)
+				if(!targets[i].remove)
 					ff.putdata(sprint("new %d %s\n", targets[i].id, targets[i].name));
 			eventfile = addfidfile(eventfile, ff);
 			say("new eventfile fidfile inserted");
@@ -628,13 +635,6 @@ dostyx(mm: ref Tmsg)
 			ff := Fidfile.new(fid, nil);
 			pongfile = addfidfile(pongfile, ff);
 			say("new pongfile fidfile inserted");
-
-		Qusers =>
-			ff := Fidfile.new(fid, nil);
-			for(i := 0; i < len t.joined; i++)
-				ff.putdata(sprint("+%s\n", t.joined[i]));
-			t.users = addfidfile(t.users, ff);
-			say("new usersfile fidfile inserted");
 
 		Qraw =>
 			if(mode == Sys->OREAD || mode == Sys->ORDWR) {
@@ -652,13 +652,13 @@ dostyx(mm: ref Tmsg)
 			return replyerror(m, err);
 		q := int f.path&16rff;
 		t := findtarget(int f.path>>8);
-		if(t == nil || t.dead)
-			return replyerror(m, Edead);
+		if(t == nil)
+			return replyerror(m, Eeof);
 		if(state != Connected && q != Qrootctl && q != Qctl && t.id != 0)
 			return replyerror(m, Enocon);
 		case q {
-		Qrootctl
-		or Qctl =>
+		Qrootctl or
+		Qctl =>
 			ctl(m, t);
 		Qraw =>
 			l := stripnewline(string m.data);
@@ -668,6 +668,8 @@ dostyx(mm: ref Tmsg)
 			else
 				srv.reply(ref Rmsg.Write(m.tag, len m.data));
 		Qdata =>
+			if(t.eof)
+				return replyerror(m, Eeof);
 			if(t.id == 0)
 				return replyerror(m, Estatus);
 			(toks, nil) := tokens(string m.data, "\n", -1);
@@ -697,7 +699,7 @@ dostyx(mm: ref Tmsg)
 			Qusers =>	t.users = delfidfile(t.users, f);
 			Qdata =>	t.data = delfidfile(t.data, f);
 			}
-			if(t.dead && t.opens == 0)
+			if(t.eof && t.remove && t.opens == 0)
 				targets = del(targets, t);
 		}
 		srv.default(m);
@@ -713,10 +715,6 @@ dostyx(mm: ref Tmsg)
 		t := findtarget(int f.path>>8);
 		if(t == nil)
 			return replyerror(m, Etarget);
-		if(t.dead) {
-			srv.reply(ref Rmsg.Read(m.tag, array[0] of byte));
-			return;
-		}
 		if(state != Connected && q != Qevent && t.id != 0)
 			return replyerror(m, Enocon);
 		case q {
@@ -737,8 +735,8 @@ dostyx(mm: ref Tmsg)
 			return;
 		}
 		t := findtarget(int f.path>>8);
-		if(t == nil || t.dead)
-			return replyerror(m, Edead);
+		if(t == nil || t.eof)
+			return replyerror(m, Eeof);
 		if(state != Connected)
 			return replyerror(m, Enocon);
 		ff := findfidfile(t.data, f);
@@ -777,8 +775,8 @@ navigate(navop: ref Navop)
 	pick op := navop {
 	Stat =>
 		say("navop stat");
-		if(t == nil || t.dead)
-			navop.reply <-= (nil, Edead);
+		if(t == nil)
+			navop.reply <-= (nil, Eeof);
 		else
 			navop.reply <-= (dir(int op.path, t.mtime), nil);
 
@@ -810,8 +808,8 @@ navigate(navop: ref Navop)
 			op.reply <-= (nil, Enotfound);
 
 		Qdir =>
-			if(t == nil || t.dead) {
-				op.reply <-= (nil, Edead);
+			if(t == nil) {
+				op.reply <-= (nil, Eeof);
 				return;
 			}
 			for(i := Qctl; i <= Qdata; i++) {
@@ -828,8 +826,8 @@ navigate(navop: ref Navop)
 		}
 	Readdir =>
 		say("navop readdir");
-		if(t == nil || t.dead) {
-			op.reply <-= (nil, Edead);
+		if(t == nil) {
+			op.reply <-= (nil, Eeof);
 			return;
 		}
 		if(int op.path == Qroot) {
@@ -842,10 +840,8 @@ navigate(navop: ref Navop)
 					have++;
 				* =>
 					off := i-nfixed;
-					if(!targets[off].dead) {
-						op.reply <-= (dir(Qdir|(targets[off].id<<8), targets[off].mtime), nil);
-						have++;
-					}
+					op.reply <-= (dir(Qdir|(targets[off].id<<8), targets[off].mtime), nil);
+					have++;
 				}
 		} else {
 			for(i := 0; i < op.count && op.offset+i <= Qdata-Qctl; i++)
@@ -873,6 +869,10 @@ dir(path, mtime: int): ref Sys->Dir
 	return d;
 }
 
+noeofctls := array[] of {
+"names", "n", "me", "notice", "version", "time", "ping", "ctcp",
+"kick", "op", "deop", "ban", "unban", "voice", "devoice", "mode", "part", "topic",
+};
 ctl(m: ref Tmsg.Write, t: ref Target)
 {
 	say(sprint("ctl on %q: %q", t.name, string m.data));
@@ -887,6 +887,12 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 	cmd := hd toks;
 	if(state == Disconnected && cmd != "connect" && cmd != "reconnect" || state == Connecting && cmd != "nick")
 		return replyerror(m, Enocon);
+
+	if(t.eof) {
+		for(i := 0; i < len noeofctls; i++)
+			if(noeofctls[i] == cmd)
+				return replyerror(m, Eeof);
+	}
 
 	err: string;
 	case cmd {
@@ -1045,15 +1051,21 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		(toks, nil) = tokens(rem, " ", -1);
 		err = writemsg(ref Timsg.Mode(t.name, toks));
 
-	"part" =>
+	"part" or
+	"remove" =>
 		if(t.id == 0)
-			return replyerror(m, "cannot part status window");
-		if(t.ischan) {
-			err = writemsg(ref Timsg.Part(t.name));
-		} else {
-			mwrite(t.name, sprint("you left"));
-			t.shutdown();
-		}
+			return replyerror(m, Estatus);
+		if(cmd == "remove")
+			t.remove = 1;
+		if(!t.eof) {
+			if(t.ischan) {
+				err = writemsg(ref Timsg.Part(t.name));
+			} else {
+				mwrite(t.name, sprint("you left"));
+				shutdown(t);
+			}
+		} else if(t.remove)
+			writefile(eventfile, sprint("del %d\n", t.id));
 
 	"topic" =>
 		if(t.id == 0 || !t.ischan)
@@ -1090,8 +1102,8 @@ disconnect()
 
 	changestate(Disconnected);
 	for(i := 1; i < len targets; i++)
-		if(!targets[i].dead)
-			targets[i].shutdown();
+		if(!targets[i].eof)
+			shutdown(targets[i]);
 	say(sprint("killing pids %d %d", readerpid, writerpid));
 	kill(readerpid);
 	kill(writerpid);
@@ -1322,8 +1334,13 @@ Fidfile.styxop(ff: self ref Fidfile, t: ref Target): ref Rmsg.Read
 
 	r := ff.reads[0];
 
-	if(ff.histoff >= t.end)
+	if(ff.histoff >= t.end) {
+		if(t.eof) {
+			ff.reads = ff.reads[1:];
+			return ref Rmsg.Read (r.tag, array[0] of byte);
+		}
 		return nil;
+	}
 	if(ff.histoff < t.begin)
 		ff.histoff = t.begin;
 	ff.reads = ff.reads[1:];
@@ -1371,7 +1388,7 @@ Target.new(name: string): ref Target
 		array[0] of array of byte, 0,
 		0, 0,
 		array[0] of string, array[0] of string,
-		0, 0, nil, daytime->now());
+		0, 0, 0, nil, daytime->now());
 }
 
 Target.putdata(t: self ref Target, s: string)
@@ -1405,13 +1422,21 @@ Target.write(t: self ref Target, s: string)
 
 Target.shutdown(t: self ref Target)
 {
-	if(!t.dead) {
-		t.write("");
-		for(i := 0; i < len t.users;i ++)
-			t.users[i].write("");
-		writefile(eventfile, sprint("del %d\n", t.id));
-		t.dead = 1;
+	if(!t.eof) {
+		writefile(t.data, "");
+		writefile(t.users, "");
+		t.eof = 1;
 	}
+}
+
+
+shutdown(t: ref Target)
+{
+	t.shutdown();
+	if(t.remove)
+		writefile(eventfile, sprint("del %d\n", t.id));
+	if(t.remove && t.opens == 0)
+		targets = del(targets, t);
 }
 
 writefile(a: array of ref Fidfile, s: string)
@@ -1432,7 +1457,7 @@ findtargetname(name: string): ref Target
 {
 	lname := lowercase(name);
 	for(i := 0; i < len targets; i++)
-		if(!targets[i].dead && targets[i].lname == lname)
+		if(!targets[i].eof && targets[i].lname == lname)
 			return targets[i];
 	return nil;
 }
@@ -1469,7 +1494,7 @@ mwriteall(text: string)
 {
 	text = "# "+text+"\n";
 	for(i := 0; i < len targets; i++)
-		if(!targets[i].dead)
+		if(!targets[i].eof)
 			targets[i].write(text);
 }
 

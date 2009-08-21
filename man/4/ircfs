@@ -2,7 +2,8 @@
 .SH NAME
 ircfs \- irc file server
 .SH SYNOPSIS
-.RB "mount { " ircfs
+mount {
+.B ircfs
 [
 .B -Ddt
 ] [
@@ -187,8 +188,14 @@ mode
 .IR [mode] ,
 part
 .IR [msg] ,
+remove
+.IR [msg] ,
 topic
 .IR [topic] .
+.I Remove
+is like
+.I part
+but also sends a hint on the event file that the target is to be removed.
 The following commands only work on channels and require one or more user names as parameters:
 kick, op, deop, ban, unban, voice, devoice .
 .TP

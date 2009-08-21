@@ -46,7 +46,7 @@ lowercase(s: string): string
 
 ischannel(s: string): int
 {
-	return !str->in(s[0], "a-zA-Z[\\]^_`{|}");
+	return s != nil && !str->in(s[0], "a-zA-Z[\\]^_`{|}");
 }
 
 liststr(l: list of string): string

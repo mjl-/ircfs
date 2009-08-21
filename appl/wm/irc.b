@@ -24,8 +24,6 @@ include "tk.m";
 	tk: Tk;
 include "tkclient.m";
 	tkclient: Tkclient;
-include "irc.m";
-	irc: Irc;
 include "keyboard.m";
 
 Windowlinesmax: con 8*1024;
@@ -68,6 +66,7 @@ Srv: adt {
 	addunopen:	fn(srv: self ref Srv, name: string, id: int);
 	delunopen:	fn(srv: self ref Srv, id: int);
 	haveopen:	fn(srv: self ref Srv, id: int): int;
+	findwin:	fn(srv: self ref Srv, id: int): ref Win.Irc;
 };
 
 None, Meta, Delayed, Data, Highlight: con iota;	# Win.state
@@ -228,8 +227,6 @@ init(ctxt: ref Draw->Context, args: list of string)
 	plumbmsg = load Plumbmsg Plumbmsg->PATH;
 	tk = load Tk Tk->PATH;
 	tkclient = load Tkclient Tkclient->PATH;
-	irc = load Irc Irc->PATH;
-	irc->init();
 
 	arg->init(args);
 	arg->setusage(arg->progname()+" [-ds] [-g width height] [-h histsize] [-r hlregex] [path ...]");
@@ -291,18 +288,17 @@ init(ctxt: ref Draw->Context, args: list of string)
 	for(;;) alt {
 	s := <-t.ctxt.kbd =>
 		tk->keyboard(t, s);
+
 	s := <-t.ctxt.ptr =>
 		tk->pointer(t, *s);
+
 	s := <-t.ctxt.ctl or s = <-t.wreq =>
 		tkclient->wmctl(t, s);
+
 	menu := <-wmctl =>
-		case menu {
-		"exit" =>
-			killgrp(pid());
-			exit;
-		* =>
-			tkclient->wmctl(t, menu);
-		}
+		if(menu == "exit")
+			quit();
+		tkclient->wmctl(t, menu);
 
 	srv := <-pongwatchc =>
 		say("pongwatch timeout");
@@ -363,6 +359,13 @@ init(ctxt: ref Draw->Context, args: list of string)
 	(w, err) := <-writererrc =>
 		tkwinwarn(w, "writing: "+err);
 	}
+}
+
+quit()
+{
+	tkcmd("destroy .; update");
+	killgrp(pid());
+	exit;
 }
 
 srvopen(srvid: int, s: string)
@@ -569,7 +572,7 @@ dodata(win: ref Win.Irc, lines: list of string)
 			tkcmd(sprint(".%s tag add bold {end -1c linestart +%dc} {end -1 linestart +%dc}", win.tkid, start, end));
 		}
 
-		hl := matches(win.srv.lnick, irc->lowercase(m));
+		hl := matches(win.srv.lnick, lowercase(m));
 		havehl := hl != nil;
 		for(; hl != nil; hl = tl hl) {
 			(s, e) := *hd hl;
@@ -620,11 +623,14 @@ doevent(srv: ref Srv, tokens: list of string)
 		id := int hd tokens;
 		say(sprint("del target %d", id));
 		srv.delunopen(id);
+		w := srv.findwin(id);
+		if(w != nil)
+			delwindow(w);
 
 	"nick" =>
 		srv.nick = hd tokens;
 		say(sprint("new nick: %q", srv.nick));
-		srv.lnick = irc->lowercase(srv.nick);
+		srv.lnick = lowercase(srv.nick);
 
 	"disconnected" =>
 		say("disconnected");
@@ -634,7 +640,7 @@ doevent(srv: ref Srv, tokens: list of string)
 
 	"connected" =>
 		srv.nick = hd tokens;
-		srv.lnick = irc->lowercase(srv.nick);
+		srv.lnick = lowercase(srv.nick);
 		tkstatuswarn(sprint("connected %q: %q", srv.path, srv.nick));
 		pongwatch(srv, Pinginterval+Noponginterval+Pongslack);
 
@@ -758,40 +764,49 @@ uncrap(s: string): (string, list of ref (int, int))
 command(line: string)
 {
 	(cmd, rem) := str->splitstrl(line, " ");
+	if(cmd == "win") {
+		if(rem != nil)
+			rem = rem[1:];
+		return wincmd(rem);
+	}
 
+	err := curwin.writectl(line);
+	if(err != nil)
+		tkwarn(err);
+}
+
+wincmd(line: string)
+{
+	(cmd, rem) := str->splitstrl(line, " ");
 	case cmd {
 	"add" =>
 		rem = str->drop(rem, " \t");
-		say(sprint("adding server %q", rem));
+		say(sprint("opening server %q", rem));
 		spawn srvopen(lastsrvid++, rem);
 		return;
 
-	"exit" =>
-		killgrp(pid());
-		exit;
+	"exit" or
+	"quit" =>
+		quit();
 
 	"clear" =>
 		tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
 		return;
+
+	"away" =>
+		for(l := servers; l != nil; l = tl l)
+			if((s := hd l) != nil && s.wins != nil)
+				(hd s.wins).writectl(line);
 	}
 
 	ircwin: ref Win.Irc;
 	pick win := curwin {
-	Status =>
-		tkwarn("not an irc window");
-		return;
-	Irc =>
-		ircwin = win;
+	Status =>	return tkwarn("not an irc window");
+	Irc =>		ircwin = win;
 	}
 
 	err: string;
 	case cmd {
-	"close" =>
-		if(curwin == ircwin.srv.win0)
-			err = "cannot remove irc status window";
-		else
-			delwindow(ircwin);
-
 	"del" =>
 		srv := ircwin.srv;
 		srv.dead = 1;
@@ -808,13 +823,21 @@ command(line: string)
 		}
 		fixwindows();
 
-	"addwin" =>
+	"close" =>
+		if(curwin == ircwin.srv.win0)
+			err = "cannot remove irc status window";
+		else
+			delwindow(ircwin);
+
+	"open" =>
 		rem = str->drop(rem, " \t");
 		id := int rem;
 		if(ircwin.srv.haveopen(id))
 			err = "window already open";
-		if(err == nil)
+		if(err == nil) {
 			spawn winopen(ircwin.srv, id, nil, 1);
+			say(sprint("winopen spawned for id %d", id));
+		}
 
 	"windows" =>
 		tkstatus("open:");
@@ -824,13 +847,8 @@ command(line: string)
 		for(l := ircwin.srv.unopen; l != nil; l = tl l)
 			tkstatus(sprint("\t%-15s (%d)", (hd l).t0, (hd l).t1));
 
-	"away" =>
-		for(l := servers; l != nil; l = tl l)
-			if(sys->fprint((hd l).ctlfd, "%s", line) < 0)
-				tkwarn(sprint("%q: %r", (hd l).path));
-
 	* =>
-		err = curwin.writectl(line);
+		err = "unknown command";
 	}
 	if(err != nil)
 		tkwarn(err);
@@ -871,10 +889,15 @@ Srv.delunopen(srv: self ref Srv, id: int)
 
 Srv.haveopen(srv: self ref Srv, id: int): int
 {
+	return srv.findwin(id) != nil;
+}
+
+Srv.findwin(srv: self ref Srv, id: int): ref Win.Irc
+{
 	for(wl := srv.wins; wl != nil; wl = tl wl)
 		if((hd wl).id == id)
-			return 1;
-	return 0;
+			return hd wl;
+	return nil;
 }
 
 eventreader(pidc: chan of int, srv: ref Srv)
@@ -956,7 +979,7 @@ Win.init(srv: ref Srv, id: int, name: string): (ref Win.Irc, string)
 		return (nil, sprint("open: %r"));
 
 	tkid := sprint("t-%d-%d", srv.id, id);
-	win := ref Win.Irc(name, tkid, -1, 0, 0, nil, None, srv, id, ctlfd, datafd, usersfd, nil, irc->ischannel(name), nil);
+	win := ref Win.Irc(name, tkid, -1, 0, 0, nil, None, srv, id, ctlfd, datafd, usersfd, nil, ischannel(name), nil);
 	return (win, nil);
 }
 
@@ -1328,6 +1351,29 @@ taketl(s, cl: string): string
 	for(i := len s; i > 0 && str->in(s[i-1], cl); i--)
 		;
 	return s[i:];
+}
+
+lowercase(s: string): string
+{
+	r := "";
+	for(i := 0; i < len s; i++) {
+		c := s[i];
+		case s[i] {
+		'A' to 'Z' =>
+			c = s[i]+('a'-'A');
+		'[' =>	c = '{';
+		']' =>	c = '}';
+		'\\' =>	c = '|';
+		'~' =>	c = '^';
+		}
+		r[i] = c;
+	}
+	return r;
+}
+
+ischannel(s: string): int
+{
+	return s != nil && !str->in(s[0], "a-zA-Z[\\]^_`{|}");
 }
 
 del[T](e: T, l: list of T): list of T

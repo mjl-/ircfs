@@ -10,7 +10,10 @@ SYSMODULES=\
 	daytime.m\
 	draw.m\
 	keyring.m\
+	lists.m\
 	string.m\
+	styx.m\
+	styxservers.m\
 	sys.m\
 	irc.m\
 

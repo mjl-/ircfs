@@ -8,6 +8,7 @@ MODULES=\
 SYSMODULES=\
 	sys.m\
 	bufio.m\
+	string.m\
 	irc.m\
 
 DISBIN=$ROOT/dis/lib
