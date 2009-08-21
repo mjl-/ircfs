@@ -277,7 +277,6 @@ Done:
 		disconnect();
 
 	mm := <-msgc =>
-		say("styx msg");
 		if(mm == nil)
 			break Done;
 		pick m := mm {
@@ -723,7 +722,6 @@ dostyx(mm: ref Tmsg)
 			srv.default(m);
 			return;
 		}
-		say(sprint("read f.path=%bd", f.path));
 		q := int f.path&16rff;
 		t := findtarget(int f.path>>8);
 		if(t == nil)
@@ -781,20 +779,17 @@ navigator(c: chan of ref Navop)
 
 navigate(navop: ref Navop)
 {
-	say("have navop");
 	id := int navop.path>>8;
 	q := int navop.path&16rff;
 	t := findtarget(id);
 	pick op := navop {
 	Stat =>
-		say("navop stat");
 		if(t == nil)
 			navop.reply <-= (nil, Eeof);
 		else
 			navop.reply <-= (dir(int op.path, t.mtime), nil);
 
 	Walk =>
-		say("navop walk");
 		if(op.name == "..") {
 			destq := Qroot;
 			mtime := starttime;
@@ -838,7 +833,6 @@ navigate(navop: ref Navop)
 			op.reply <-= (nil, Enotdir);
 		}
 	Readdir =>
-		say("navop readdir");
 		if(t == nil) {
 			op.reply <-= (nil, Eeof);
 			return;

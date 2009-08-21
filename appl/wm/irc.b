@@ -69,7 +69,7 @@ Srv: adt {
 	findwin:	fn(srv: self ref Srv, id: int): ref Win.Irc;
 };
 
-None, Meta, Delayed, Data, Highlight: con iota;	# Win.state
+None, Delayed, Meta, Data, Highlight: con 1<<iota;	# Win.state
 
 # window, an irc directory except for status window
 Win: adt {
@@ -78,7 +78,6 @@ Win: adt {
 	listindex:	int;
 	eof:	int;
 	nlines:	int;		# lines in window
-	status:	string;
 	state:	int;
 
 	pick {
@@ -98,6 +97,7 @@ Win: adt {
 	close:	fn(w: self ref Win);
 	writectl:	fn(w: self ref Win, s: string): string;
 	setstate:	fn(w: self ref Win, state, draw: int);
+	status:		fn(w: self ref Win): string;
 	scroll:		fn(w: self ref Win);
 	scrolltext:	fn(w: self ref Win, seetop, seebottom: int);
 	visibletext:	fn(w: self ref Win): (int, int);
@@ -259,7 +259,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 	tkcmd(sprint(". configure -width %d -height %d", width, height));
 
 	maketext("status");
-	statuswin = ref Win.Status("status", "status", 0, 0, 0, "", None);
+	statuswin = ref Win.Status("status", "status", 0, 0, 0, None);
 	lastwin = curwin = statuswin;
 	fixwindows();
 	tkwinwrite(statuswin, "status window", "meta");
@@ -333,7 +333,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 		}
 		if(win.srv.dead)
 			continue;
-		win.setstate(None, 0);
+		win.state = None;
 		pidc := chan of int;
 		spawn reader(pidc, win.datafd, win);
 		spawn usersreader(pidc, win.usersfd, win);
@@ -472,10 +472,10 @@ dotk(cmd: string)
 
 	"nextactivewin" =>
 		off := curwin.listindex;
-		which := array[] of {Highlight, Data, Meta};
+		which := array[] of {Highlight, Data, Delayed, Meta};
 		for(w := 0; w < len which; w++)
 			for(i := 0; i < len windows; i++)
-				if(windows[(i+off)%len windows].state == which[w])
+				if(windows[(i+off)%len windows].state & which[w])
 					return showwindow(windows[(i+off)%len windows]);
 
 	"clear" =>
@@ -588,8 +588,8 @@ dodata(win: ref Win.Irc, lines: list of string)
 		# this is a simple heuristic to start without all windows highlighted...
 		if(nlines == 1 && win != curwin && !nostatechange) {
 			if(state == Data && (!win.ischan || havehl))
-				state = Highlight;
-			win.setstate(state, 1);
+				state |= Highlight;
+			win.setstate(win.state|state, 1);
 		}
 	}
 	win.scrolltext(seetop, seebottom);
@@ -660,7 +660,7 @@ dopong(srv: ref Srv, tokens: list of string)
 	
 	if(srv.noircfs) {
 		tkwinwrite(srv.win0, sprint("have ircfs response again, after %d seconds", daytime->now()-srv.lastpong), "warning");
-		srv.win0.setstate(Meta, 1);
+		srv.win0.setstate(srv.win0.state & ~Delayed, 1);
 		tkcmd("update");
 		srv.noircfs = 0;
 	}
@@ -671,9 +671,7 @@ dopong(srv: ref Srv, tokens: list of string)
 			if(len tokens == 1)
 				nsecs = int hd tokens;
 			tkwinwrite(srv.win0, sprint("have irc server response again, after %d seconds", nsecs), "warning");
-			if(srv.win0.state == Delayed)
-				srv.win0.state = Meta;
-			srv.win0.setstate(Meta, 1);
+			srv.win0.setstate(srv.win0.state|Delayed, 1);
 			tkcmd("update");
 			srv.nopong = 0;
 		}
@@ -687,6 +685,7 @@ dopong(srv: ref Srv, tokens: list of string)
 			nsecs = int hd tokens;
 		tkwinwrite(srv.win0, sprint("no response from irc server for %d seconds", nsecs), "warning");
 		srv.win0.setstate(Delayed, 1);
+		tkcmd("update");
 		srv.nopong = 1;
 		srv.noircfs = 0;
 		pongwatch(srv, Noponginterval+Pongslack);
@@ -983,7 +982,7 @@ Win.init(srv: ref Srv, id: int, name: string): (ref Win.Irc, string)
 		return (nil, sprint("open: %r"));
 
 	tkid := sprint("t-%d-%d", srv.id, id);
-	win := ref Win.Irc(name, tkid, -1, 0, 0, nil, None, srv, id, ctlfd, datafd, usersfd, nil, ischannel(name), nil);
+	win := ref Win.Irc(name, tkid, -1, 0, 0, None, srv, id, ctlfd, datafd, usersfd, nil, ischannel(name), nil);
 	return (win, nil);
 }
 
@@ -1069,33 +1068,39 @@ Win.close(w: self ref Win)
 	tkcmd(sprint("destroy .%s; destroy .m.%s; destroy .%s-scroll", w.tkid, w.tkid, w.tkid));
 }
 
-Win.setstate(w: self ref Win, state, draw: int)
+Win.setstate(w: self ref Win, st, draw: int)
 {
-	if(state <= w.state && state != None)
+	if(w.state == st)
 		return;
-	pick win := w {
-	Irc =>
-		c := ' ';
-		case w.state = state {
-		Highlight =>	c = '=';
-				w.plumbsend(nil, "highlight", w.name);
-		Data =>		c = '+';
-		Delayed =>	c = '~';
-		Meta =>		c = '-';
-		}
 
-		ws := " ";
-		if(win.id == 0)
-			ws = "";
-		w.status = sprint("%c%s", c, ws);
-	}
+	if(st & Highlight && (w.state & Highlight) == 0)
+		w.plumbsend(nil, "highlight", w.name);
+	w.state = st;
+
 	if(draw)
 		drawstate(w);
 }
 
+Win.status(w: self ref Win): string
+{
+	c := " ";
+	if(w.state & Highlight) c = "=";
+	else if(w.state & Data) c = "+";
+	else if(w.state & Delayed) c = "~";
+	else if(w.state & Meta) c = "-";
+
+	ws := "";
+	pick ww := w {
+	Irc =>
+		if(ww.id != 0)
+			ws = " ";
+	}
+	return c+ws+w.name;
+}
+
 drawstate(w: ref Win)
 {
-	tkcmd(sprint(".targs delete %d; .targs insert %d {%s%s}", w.listindex, w.listindex, w.status, w.name));
+	tkcmd(sprint(".targs delete %d; .targs insert %d {%s}", w.listindex, w.listindex, w.status()));
 }
 
 Win.scroll(w: self ref Win)
@@ -1218,7 +1223,7 @@ fixwindows()
 	tkcmd(sprint(".targs delete 0 end"));
 	for(i = 0; i < len windows; i++) {
 		w := windows[i];
-		tkcmd(sprint(".targs insert %d {%s%s}", w.listindex, w.status, w.name));
+		tkcmd(sprint(".targs insert %d {%s}", w.listindex, w.status()));
 	}
 
 	fixwinsel(useindex);
