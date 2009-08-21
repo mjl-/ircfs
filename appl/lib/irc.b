@@ -14,7 +14,7 @@ include "irc.m";
 desttypes := array[] of {
 	301, 311, 312, 313, 317, 318, 319,	# nick as first token
 	324, 325, 329, 331, 332, 333, 341, 346, 347, 348, 349, 366, 367, 368,	# channel as first token
-	467, 471, 473, 474, 475, 476, 477, 478, 482,		# nick or channel as first token
+	401, 403, 404, 405, 406, 467, 471, 473, 474, 475, 476, 477, 478, 482,	# nick or channel as first token
 };
 
 
@@ -195,7 +195,9 @@ Rimsg.text(m: self ref Rimsg): string
 	Pong =>	s += sprint("Pong(%q, %q)", mm.who, mm.m);
 	Kick =>	s += sprint("Kick(%q, %q, %q)", mm.where, mm.who, mm.m);
 	Invite =>	s += sprint("Invite(%q, %q)", mm.who, mm.where);
-	Unknown or Replytext or Errortext =>
+	Unknown or
+	Replytext or
+	Errortext =>
 		which := "";
 		case tagof m {
 		Rimsg.Unknown =>	which = "Unknown";
@@ -236,7 +238,13 @@ Rimsg.unpack(s: string): (ref Rimsg, string)
 	if(len cmd == 0)
 		return (nil, "parsing: command is missing");
 	case cmd {
-	"NICK" or "MODE" or "QUIT" or "JOIN" or "PART" or "TOPIC" or "KICK" =>
+	"NICK" or
+	"MODE" or
+	"QUIT" or
+	"JOIN" or
+	"PART" or
+	"TOPIC" or
+	"KICK" =>
 		if(f == nil)
 			return (nil, "missing 'from'");
 	}
@@ -279,7 +287,9 @@ Rimsg.unpack(s: string): (ref Rimsg, string)
 			modes = (mode, rev(modeparams))::modes;
 		}
 		return (ref Rimsg.Mode(f, cmd, params[0], modes), nil);
-	"QUIT" or "ERROR" or "SQUIT" =>
+	"QUIT" or
+	"ERROR" or
+	"SQUIT" =>
 		if(len params > 1)
 			return (nil, "bad params for quit/error/squit");
 		m := "";
@@ -294,7 +304,10 @@ Rimsg.unpack(s: string): (ref Rimsg, string)
 		if(len params != 1)
 			return (nil, "bad params for join");
 		return (ref Rimsg.Join(f, cmd, params[0]), nil);
-	"PART" or "TOPIC" or "PRIVMSG" or "NOTICE" =>
+	"PART" or
+	"TOPIC" or
+	"PRIVMSG" or
+	"NOTICE" =>
 		m := "";
 		case len params {
 		1 =>	;

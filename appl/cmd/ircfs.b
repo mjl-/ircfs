@@ -580,6 +580,19 @@ doirc(mm: ref Rimsg)
 			irc->RPLchannelmodechanged =>
 				msg = "mode changed "+msg;
 			}
+		else if(tagof m == tagof Rimsg.Errortext)
+			case int m.cmd {
+			irc->RPLnosuchnick or
+			irc->RPLnosuchchannel or
+			irc->RPLcannotsendtochan or
+			irc->RPLtoomanychannels or
+			irc->RPLwasnosuchnick =>
+				t := findtargetname(m.where);
+				if(t == nil || t.eof)
+					t = status;
+				t.write(sprint("# %s %s\n", stamp(), msg));
+				silent = 1;
+			}
 		if(!silent) {
 			if(m.where != nil)
 				mwrite(m.where, sprint("%s %s", stamp(), msg));

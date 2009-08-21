@@ -21,6 +21,12 @@ Irc: module {
 	RPLendofwhois:	con 318;
 	RPLwhoischannels:	con 319;
 
+	RPLnosuchnick:		con 401;
+	RPLnosuchchannel:	con 403;
+	RPLcannotsendtochan:	con 404;
+	RPLtoomanychannels:	con 405;
+	RPLwasnosuchnick:	con 406;
+
 	Maximsglen:	con 512;
 
 	ischannel:	fn(name: string): int;

@@ -83,7 +83,6 @@ the mount and styxlisten calls earlier by "-k $home/keyring/ircfs".
 - ircfs+wm/irc: find a way to allow access to targets after a disconnect.
 - wm/irc: getting response (pong) after getting nothing/nopoing should clear the ~ status
 - ircfs: should not let pong/nopong messages fill up a fidfile when noone is reading.  we only have to keep one message around.
-- ircfs: "no such nick" messages (in response to privmsg or whois) should go to user window.  it's an error code (but which?)
 - ircfs: sometimes old lines are reinserted in the data file.  probably something wrong with accounting of the lines for the data file.
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
 - wm/irc: acme-like chording doesn't work when selecting text by double-click.  fix that.

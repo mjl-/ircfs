@@ -292,7 +292,8 @@ init(ctxt: ref Draw->Context, args: list of string)
 	s := <-t.ctxt.ptr =>
 		tk->pointer(t, *s);
 
-	s := <-t.ctxt.ctl or s = <-t.wreq =>
+	s := <-t.ctxt.ctl or
+	s = <-t.wreq =>
 		tkclient->wmctl(t, s);
 
 	menu := <-wmctl =>
@@ -386,7 +387,9 @@ dotk(cmd: string)
 	say(sprint("tk ui cmd: %q", word));
 
 	case word {
-	"find" or "findnext" or "findprev" =>
+	"find" or
+	"findnext" or
+	"findprev" =>
 		start := "end";
 		if(word != "find") {
 			# there should be only one range
@@ -556,7 +559,8 @@ dodata(win: ref Win.Irc, lines: list of string)
 		state := Data;
 		nostatechange := m[:2] == "! ";
 		case m[:2] {
-		"# " or "! " =>
+		"# " or
+		"! " =>
 			tag = "meta";
 			state = Meta;
 		"- " =>
