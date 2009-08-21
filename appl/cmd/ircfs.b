@@ -124,8 +124,9 @@ Fidfile: adt {
 	reads:	array of ref Tmsg.Read;
 
 	a:	array of array of byte;
+	singlebuf:	int;  # whether to only store one buffer to read
 
-	new:		fn(fid: ref Fid, t: ref Target): ref Fidfile;
+	new:		fn(fid: ref Fid, t: ref Target, singlebuf: int): ref Fidfile;
 	write:		fn(f: self ref Fidfile, s: string);
 	putdata:	fn(f: self ref Fidfile, s: string);
 	putread:	fn(f: self ref Fidfile, m: ref Tmsg.Read);
@@ -616,13 +617,9 @@ dostyx(mm: ref Tmsg)
 		if(t == nil)
 			return replyerror(m, Eeof);
 
-		# during disconnect, we only allow ops on / (for readdir), ctl (to connect), and status dir.
-		if(state != Connected && q != Qroot && q != Qrootctl && q != Qevent && t.id != 0)
-			return replyerror(m, Enocon);
-
 		case q {
 		Qusers =>
-			ff := Fidfile.new(fid, nil);
+			ff := Fidfile.new(fid, nil, 0);
 			for(i := 0; i < len t.joined; i++)
 				ff.putdata(sprint("+%s\n", t.joined[i]));
 			t.users = addfidfile(t.users, ff);
@@ -630,12 +627,12 @@ dostyx(mm: ref Tmsg)
 
 		Qdata =>
 			if((mode == Sys->OREAD || mode == Sys->ORDWR) && q == Qdata) {
-				t.data = addfidfile(t.data, Fidfile.new(fid, t));
+				t.data = addfidfile(t.data, Fidfile.new(fid, t, 0));
 				say("new data fidfile inserted");
 			}
 
 		Qevent =>
-			ff := Fidfile.new(fid, nil);
+			ff := Fidfile.new(fid, nil, 0);
 			ff.putdata(connectstatus()+"\n");
 			for(i := 0; i < len targets; i++)
 				if(!targets[i].remove)
@@ -644,13 +641,13 @@ dostyx(mm: ref Tmsg)
 			say("new eventfile fidfile inserted");
 
 		Qpong =>
-			ff := Fidfile.new(fid, nil);
+			ff := Fidfile.new(fid, nil, 1);
 			pongfile = addfidfile(pongfile, ff);
 			say("new pongfile fidfile inserted");
 
 		Qraw =>
 			if(mode == Sys->OREAD || mode == Sys->ORDWR) {
-				ff := Fidfile.new(fid, nil);
+				ff := Fidfile.new(fid, nil, 0);
 				rawfile = addfidfile(rawfile, ff);
 				say("new rawfile fidfile inserted");
 			}
@@ -666,13 +663,13 @@ dostyx(mm: ref Tmsg)
 		t := findtarget(int f.path>>8);
 		if(t == nil)
 			return replyerror(m, Eeof);
-		if(state != Connected && q != Qrootctl && q != Qctl && t.id != 0)
-			return replyerror(m, Enocon);
 		case q {
 		Qrootctl or
 		Qctl =>
 			ctl(m, t);
 		Qraw =>
+			if(state != Connected)
+				return replyerror(m, Enocon);
 			l := stripnewline(string m.data);
 			err = writeraw(l+"\r\n");
 			if(err != nil)
@@ -680,6 +677,8 @@ dostyx(mm: ref Tmsg)
 			else
 				srv.reply(ref Rmsg.Write(m.tag, len m.data));
 		Qdata =>
+			if(state != Connected)
+				return replyerror(m, Enocon);
 			if(t.eof)
 				return replyerror(m, Eeof);
 			if(t.id == 0)
@@ -726,8 +725,6 @@ dostyx(mm: ref Tmsg)
 		t := findtarget(int f.path>>8);
 		if(t == nil)
 			return replyerror(m, Etarget);
-		if(state != Connected && q != Qevent && t.id != 0)
-			return replyerror(m, Enocon);
 		case q {
 		Qraw =>		fidread(rawfile, f, m, nil);
 		Qevent =>	fidread(eventfile, f, m, nil);
@@ -892,7 +889,9 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		return replyerror(m, "missing command");
 
 	cmd := hd toks;
-	if(state == Disconnected && cmd != "connect" && cmd != "reconnect" || state == Connecting && cmd != "nick")
+	if(state == Disconnected && cmd != "connect" && cmd != "reconnect"
+	|| state == Connecting && cmd != "nick"
+	|| state == Dialing)
 		return replyerror(m, Enocon);
 
 	if(t.eof) {
@@ -1065,6 +1064,8 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		if(cmd == "remove")
 			t.remove = 1;
 		if(!t.eof) {
+			if(state != Connected)
+				return replyerror(m, Enocon);
 			if(t.ischan) {
 				err = writemsg(ref Timsg.Part(t.name));
 			} else {
@@ -1298,7 +1299,7 @@ delfidfile(a: array of ref Fidfile, f: ref Fid): array of ref Fidfile
 	return a;
 }
 
-Fidfile.new(fid: ref Fid, t: ref Target): ref Fidfile
+Fidfile.new(fid: ref Fid, t: ref Target, singlebuf: int): ref Fidfile
 {
 	histoff := 0;
 	if(t != nil) {
@@ -1306,7 +1307,7 @@ Fidfile.new(fid: ref Fid, t: ref Target): ref Fidfile
 		for(histoff = t.end; histoff > t.begin && have+(newn := len t.hist[histoff%len t.hist]) <= Histdefault; histoff--)
 			have += newn;
 	}
-	return ref Fidfile(fid, histoff, array[0] of ref Tmsg.Read, array[0] of array of byte);
+	return ref Fidfile(fid, histoff, array[0] of ref Tmsg.Read, array[0] of array of byte, singlebuf);
 }
 
 Fidfile.write(f: self ref Fidfile, s: string)
@@ -1318,7 +1319,10 @@ Fidfile.write(f: self ref Fidfile, s: string)
 
 Fidfile.putdata(f: self ref Fidfile, s: string)
 {
-	f.a = add(f.a, array of byte s);
+	if(f.singlebuf)
+		f.a = array[] of {array of byte s};
+	else
+		f.a = add(f.a, array of byte s);
 }
 
 Fidfile.putread(f: self ref Fidfile, m: ref Tmsg.Read)

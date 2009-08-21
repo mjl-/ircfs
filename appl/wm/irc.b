@@ -428,7 +428,8 @@ dotk(cmd: string)
 			tkpaste(rem);
 
 	"textcut" =>
-		if(button1) {
+		# note: double click produces "b1down b1up" and after release b1up again.  the second b1down is lost...
+		if(1 || button1) {
 			s := selection(rem);
 			if(s != nil) {
 				tkclient->snarfput(s);
@@ -437,7 +438,7 @@ dotk(cmd: string)
 		}
 
 	"textpaste" =>
-		if(button1) {
+		if(1 || button1) {
 			s := tkclient->snarfget();
 			tkcmd(sprint(".%s delete sel.first sel.last", rem)); # fails when nothing selected
 			tkcmd(sprint(".%s insert insert %s; .%s tag add sel insert-%dchars insert; update", rem, tk->quote(s), rem, len s));
