@@ -1,4 +1,5 @@
-Irc: module {
+Irc: module
+{
 	PATH:	con "/dis/lib/irc.dis";
 
 	init:	fn();

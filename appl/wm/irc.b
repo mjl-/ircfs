@@ -420,11 +420,11 @@ dotk(cmd: string)
 		button1 = 0;
 
 	"cut" =>
-		if(button1)
+		if(1 || button1)
 			tkcut(rem);
 
 	"paste" =>
-		if(button1)
+		if(1 || button1)
 			tkpaste(rem);
 
 	"textcut" =>
@@ -433,7 +433,8 @@ dotk(cmd: string)
 			s := selection(rem);
 			if(s != nil) {
 				tkclient->snarfput(s);
-				tkcmd(sprint(".%s delete sel.first sel.last; update", rem));
+				tkcmd(sprint(".%s delete sel.first sel.last", rem));
+				tkcmd("update");
 			}
 		}
 
@@ -441,7 +442,8 @@ dotk(cmd: string)
 		if(1 || button1) {
 			s := tkclient->snarfget();
 			tkcmd(sprint(".%s delete sel.first sel.last", rem)); # fails when nothing selected
-			tkcmd(sprint(".%s insert insert %s; .%s tag add sel insert-%dchars insert; update", rem, tk->quote(s), rem, len s));
+			tkcmd(sprint(".%s insert insert %s; .%s tag add sel insert-%dchars insert", rem, tk->quote(s), rem, len s));
+			tkcmd("update");
 		}
 
 	"plumb" =>
@@ -468,16 +470,16 @@ dotk(cmd: string)
 		which := array[] of {Highlight, Data, Meta};
 		for(w := 0; w < len which; w++)
 			for(i := len windows; i >= 0; i--)
-				if(windows[(i+off)%len windows].state == which[w])
-					return showwindow(windows[(i+off)%len windows]);
+				if(windows[v := (i+off)%len windows].state == which[w])
+					return showwindow(windows[v]);
 
 	"nextactivewin" =>
 		off := curwin.listindex;
 		which := array[] of {Highlight, Data, Delayed, Meta};
 		for(w := 0; w < len which; w++)
 			for(i := 0; i < len windows; i++)
-				if(windows[(i+off)%len windows].state & which[w])
-					return showwindow(windows[(i+off)%len windows]);
+				if(windows[v := (i+off)%len windows].state & which[w])
+					return showwindow(windows[v]);
 
 	"clear" =>
 		tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));
@@ -513,8 +515,10 @@ dotk(cmd: string)
 			if(index < 0 || index > len l)
 				return;
 			w := str->tolower(taketl(l[:index], "^ \t"));
-			say(sprint("complete, w %q", w));
+			if(w == nil)
+				return;
 
+			say(sprint("complete, w %q", w));
 			for(ul := win.users; ul != nil; ul = tl ul) {
 				if(!str->prefix(w, str->tolower(hd ul)))
 					continue;
@@ -1318,7 +1322,8 @@ tkcut(w: string)
 	v := tkcmd(w+" get");
 	if(start >= 0 && start < len v && end >= 0 && end <= len v && start < end) {
 		tkclient->snarfput(v[start:end]);
-		tkcmd(sprint("%s delete sel.first sel.last; %s selection clear; update", w, w));
+		tkcmd(sprint("%s delete sel.first sel.last; %s selection clear", w, w));
+		tkcmd("update");
 	}
 }
 
@@ -1331,7 +1336,8 @@ tkpaste(w: string)
 		end := int tkcmd(w+" index sel.last");
 		tkcmd(sprint("%s delete %d %d", w, start, end));
 	}
-	tkcmd(sprint("%s insert %d %s; %s selection range %d %d; update", w, start, tk->quote(new), w, start, start+len new));
+	tkcmd(sprint("%s insert %d %s; %s selection range %d %d", w, start, tk->quote(new), w, start, start+len new));
+	tkcmd("update");
 }
 
 substr(sub, s: string): int
