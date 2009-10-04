@@ -806,6 +806,7 @@ wincmd(line: string)
 		for(l := servers; l != nil; l = tl l)
 			if((s := hd l) != nil && s.wins != nil)
 				(hd s.wins).writectl(line);
+		return;
 	}
 
 	ircwin: ref Win.Irc;

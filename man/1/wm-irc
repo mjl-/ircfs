@@ -79,7 +79,6 @@ for commands understood by ircfs.
 
 The parameters to "win" are itself considered as a command:
 .TP
-.TP
 .BR exit " or " quit
 Exit
 .BR wm/irc .
