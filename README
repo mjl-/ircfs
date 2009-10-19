@@ -18,11 +18,10 @@ latest version.
 
 # install
 
-to install, first make a file "mkconfig" similar to your inferno's
-installation mkconfig (symlink/bind it).  now type "mk install" to
-compile and install.  NOTE: just "mk" does not work, since the
-module files (*.m) will be missing and compilation of source files
-(*.b) will fail.
+modify "mkconfig" if you do not have $ROOT set.  now type
+"mk install" to compile and install.  NOTE: just "mk" does not work,
+since the module files (*.m) will be missing and compilation of
+source files (*.b) will fail.
 
 when building from within inferno, insert SYSHOST=Inferno and ROOT=
 in the mk invocations to override the values in the mkconfig.

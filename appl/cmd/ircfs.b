@@ -731,7 +731,11 @@ dostyx(mm: ref Tmsg)
 		Qpong =>	fidread(pongfile, f, m, nil);
 		Qusers =>	fidread(t.users, f, m, nil);
 		Qdata =>	fidread(t.data, f, m, t);
-		Qnick =>	srv.reply(styxservers->readstr(m, ic.nick));
+		Qnick =>
+			n := lastnick;
+			if(ic != nil)
+				n = ic.nick;
+			srv.reply(styxservers->readstr(m, n));
 		Qname =>	srv.reply(styxservers->readstr(m, t.name));
 		* =>		srv.default(m);
 		}
@@ -862,7 +866,7 @@ dir(path, mtime: int): ref Sys->Dir
 	d.name = name;
 	if(t == Qdir)
 		d.name = string (path>>8);
-	d.uid = d.gid = "ircfs";
+	d.uid = d.gid = "irc";
 	d.qid.path = big path;
 	if(perm&Sys->DMDIR)
 		d.qid.qtype = Sys->QTDIR;
