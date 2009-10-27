@@ -5,7 +5,7 @@ ircfs \- irc file server
 mount {
 .B ircfs
 [
-.B -Ddt
+.B -dt
 ] [
 .B -a
 .I addr
@@ -67,9 +67,6 @@ Use long timestamps, in both logging and the data file.  Also removes text type 
 .TP
 .B -d
 Enable debugging.
-.TP
-.B -D
-Print styx traces.
 
 .SS Hierarchy
 The following files are exported:
@@ -98,12 +95,14 @@ invite
 msg
 .IR "nick|channel msg" ,
 time,
-version
-and
+version,
 ping
 (ctcp messages), and
 ctcp
-.IR [request] .
+.IR [request] ,
+and finally
+debug
+.IR 0|1 .
 Reconnect performs a reconnect with the parameters from the previous
 connection.  Commands are issued directly to the irc server.
 Responses from the irc server can be read from the status directory

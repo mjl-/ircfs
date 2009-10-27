@@ -62,7 +62,7 @@ Histdefault:	con 32*1024;
 
 Disconnected, Dialing, Connecting, Connected: con iota;
 
-Dflag, dflag, tflag: int;
+dflag, tflag: int;
 logpath: string;
 netname: string;	# used for the name of the status Target
 lastnick,
@@ -190,8 +190,6 @@ init(nil: ref Draw->Context, args: list of string)
 			if(logpath != nil && logpath[len logpath-1] != '/')
 				logpath += "/";
 		't' =>	tflag++;
-		'D' =>	Dflag++;
-			styxservers->traceset(Dflag);
 		'd' =>	dflag++;
 		* =>	arg->usage();
 		}
@@ -893,9 +891,9 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 		return replyerror(m, "missing command");
 
 	cmd := hd toks;
-	if(state == Disconnected && cmd != "connect" && cmd != "reconnect"
+	if((state == Disconnected && cmd != "connect" && cmd != "reconnect"
 	|| state == Connecting && cmd != "nick"
-	|| state == Dialing)
+	|| state == Dialing) && cmd != "debug")
 		return replyerror(m, Enocon);
 
 	if(t.eof) {
@@ -906,6 +904,9 @@ ctl(m: ref Tmsg.Write, t: ref Target)
 
 	err: string;
 	case cmd {
+	"debug" =>
+		dflag = int rem;
+
 	"connect" or
 	"reconnect" =>
 		if(state != Disconnected)

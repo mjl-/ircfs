@@ -47,7 +47,7 @@ on the remote machines, to start ircfs:
 	once: mkdir /mnt/irc /mnt/irc/freenode $home/irclog $home/irclog/freenode
 	emu -c0
 	ndb/cs
-	mount {ircfs -dD -l $home/irclog/freenode -a net!irc.freenode.net!6667 -n ircfsuser freenode} /mnt/irc/freenode
+	mount {ircfs -d -l $home/irclog/freenode -a net!irc.freenode.net!6667 -n ircfsuser freenode} /mnt/irc/freenode
 	styxlisten -A net!*!6872 {export /mnt/irc}
 
 and to mount the ircfs tree and start the gui wm/irc:
