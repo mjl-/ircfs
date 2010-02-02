@@ -179,7 +179,7 @@ init(nil: ref Draw->Context, args: list of string)
 	irc->init();
 
 	arg->init(args);
-	arg->setusage(arg->progname()+" [-Ddt] [-a addr] [-f fromhost] [-n nick] [-p password] [-l logpath] netname");
+	arg->setusage(arg->progname()+" [-dt] [-a addr] [-f fromhost] [-n nick] [-p password] [-l logpath] netname");
 	while((c := arg->opt()) != 0)
 		case c {
 		'a' =>	lastaddr = arg->earg();
@@ -749,11 +749,14 @@ dostyx(mm: ref Tmsg)
 			return replyerror(m, Eeof);
 		if(state != Connected)
 			return replyerror(m, Enocon);
+		# wstat for length should only happen when file has been opened.  but for linux/9pfuse users accept & ignore them on non-opened files.
 		ff := findfidfile(t.data, f);
-		n := int m.stat.length;
-		have := 0;
-		for(ff.histoff = t.end; ff.histoff >= t.begin && have+(newn := len t.hist[ff.histoff%len t.hist]) <= n; ff.histoff--)
-			have += newn;
+		if(ff != nil) {
+			n := int m.stat.length;
+			have := 0;
+			for(ff.histoff = t.end; ff.histoff >= t.begin && have+(newn := len t.hist[ff.histoff%len t.hist]) <= n; ff.histoff--)
+				have += newn;
+		}
 		srv.reply(ref Rmsg.Wstat(m.tag));
 
 	Flush =>
