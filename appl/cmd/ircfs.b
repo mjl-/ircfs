@@ -6,6 +6,7 @@
 # an open file is represented by a Fidfile.  e.g. a Target's "data"
 # or "users" is represented as an array of Fidfile's.
 # a Fidfile is an array of buffers and an array of styx reads.
+# for Qdata files, the hist buffers of the Target are used instead of the Fidfile buffers.
 # adding data to a Fidfile just appends to the buffers array.  a styx read is appended to the reads array.
 # after a data write/styx read, as many styx reads as possible are returned for the data available.
 #
@@ -101,9 +102,10 @@ Target: adt {
 	data,
 	users:	array of ref Fidfile;
 	hist:	array of array of byte;
-	histlen:	int;
-	begin,
-	end:	int;
+	histlength,		# total length of hist in bytes
+	histfirst,		# index of histbegin in hist
+	histbegin,		# first logical entry in hist, increases 1 for each buf added
+	histend:	int;	# last+1 logical entry in hist.
 	joined,		# cased users currently joined, and 
 	newjoined:	array of string;	# new list of joined users currently constructed
 	eof:	int;	# whether no more new data will arrive
@@ -120,7 +122,8 @@ Target: adt {
 
 Fidfile: adt {
 	fid:	ref Fid;
-	histoff:	int;
+	histoff:	int;	# logical line offset into Target.hist, like Target.histbegin
+	histo:		int;	# byte offset into histoff
 	reads:	array of ref Tmsg.Read;
 
 	a:	array of array of byte;
@@ -130,7 +133,8 @@ Fidfile: adt {
 	write:		fn(f: self ref Fidfile, s: string);
 	putdata:	fn(f: self ref Fidfile, s: string);
 	putread:	fn(f: self ref Fidfile, m: ref Tmsg.Read);
-	styxop:		fn(f: self ref Fidfile, t: ref Target): ref Rmsg.Read;
+	sethist:	fn(f: self ref Fidfile, t: ref Target, n: int);
+	styxop:		fn(f: self ref Fidfile, t: ref Target): ref Rmsg;  # Rmsg.Read or Rmsg.Error
 	flushop:	fn(f: self ref Fidfile, tag: int): int;
 };
 rawfile := array[0] of ref Fidfile;
@@ -751,12 +755,8 @@ dostyx(mm: ref Tmsg)
 			return replyerror(m, Enocon);
 		# wstat for length should only happen when file has been opened.  but for linux/9pfuse users accept & ignore them on non-opened files.
 		ff := findfidfile(t.data, f);
-		if(ff != nil) {
-			n := int m.stat.length;
-			have := 0;
-			for(ff.histoff = t.end; ff.histoff >= t.begin && have+(newn := len t.hist[ff.histoff%len t.hist]) <= n; ff.histoff--)
-				have += newn;
-		}
+		if(ff != nil)
+			ff.sethist(t, int m.stat.length);
 		srv.reply(ref Rmsg.Wstat(m.tag));
 
 	Flush =>
@@ -1309,13 +1309,10 @@ delfidfile(a: array of ref Fidfile, f: ref Fid): array of ref Fidfile
 
 Fidfile.new(fid: ref Fid, t: ref Target, singlebuf: int): ref Fidfile
 {
-	histoff := 0;
-	if(t != nil) {
-		have := 0;
-		for(histoff = t.end; histoff > t.begin && have+(newn := len t.hist[histoff%len t.hist]) <= Histdefault; histoff--)
-			have += newn;
-	}
-	return ref Fidfile(fid, histoff, array[0] of ref Tmsg.Read, array[0] of array of byte, singlebuf);
+	f := ref Fidfile(fid, 0, 0, array[0] of ref Tmsg.Read, array[0] of array of byte, singlebuf);
+	if(t != nil)
+		f.sethist(t, Histdefault);
+	return f;
 }
 
 Fidfile.write(f: self ref Fidfile, s: string)
@@ -1338,7 +1335,19 @@ Fidfile.putread(f: self ref Fidfile, m: ref Tmsg.Read)
 	f.reads = add(f.reads, m);
 }
 
-Fidfile.styxop(ff: self ref Fidfile, t: ref Target): ref Rmsg.Read
+Fidfile.sethist(ff: self ref Fidfile, t: ref Target, n: int)
+{
+	have := 0;
+	ff.histo = 0;
+	for(ff.histoff = t.histend; ff.histoff > t.histbegin; ff.histoff--) {
+		i := (t.histfirst+(ff.histoff-1-t.histbegin))%len t.hist;
+		have += len t.hist[i];
+		if(have > n)
+			break;
+	}
+}
+
+Fidfile.styxop(ff: self ref Fidfile, t: ref Target): ref Rmsg
 {
 	if(len ff.reads == 0)
 		return nil;
@@ -1347,30 +1356,55 @@ Fidfile.styxop(ff: self ref Fidfile, t: ref Target): ref Rmsg.Read
 		if(len ff.a == 0)
 			return nil;
 		(r, d) := (ff.reads[0], ff.a[0]);
-		(ff.reads, ff.a) = (ff.reads[1:], ff.a[1:]);
-		return ref Rmsg.Read(r.tag, d);
+		n := min(len d, r.count);
+		ff.reads = ff.reads[1:];
+		if(n == len ff.a[0])
+			ff.a = ff.a[1:];
+		else
+			ff.a[0] = ff.a[0][n:];
+		return ref Rmsg.Read(r.tag, d[:n]);
 	}
 
 	r := ff.reads[0];
 
-	if(ff.histoff >= t.end) {
+	if(ff.histoff >= t.histend) {
 		if(t.eof) {
 			ff.reads = ff.reads[1:];
 			return ref Rmsg.Read (r.tag, array[0] of byte);
 		}
 		return nil;
 	}
-	if(ff.histoff < t.begin)
-		ff.histoff = t.begin;
+	if(ff.histoff < t.histbegin) {
+		if(ff.histo != 0) {
+			ff.histo = 0;
+			return ref Rmsg.Error(r.tag, "slow read of partial line");
+		}
+		ff.histoff = t.histbegin;
+		ff.histo = 0;
+	}
 	ff.reads = ff.reads[1:];
 
+	if(r.count == 0)
+		return ref Rmsg.Read(r.tag, array[0] of byte);
+
+	# prefer to return whole lines, but at least return something
 	d := array[0] of byte;
-	while(ff.histoff < t.end && (len d+len (nd := t.hist[ff.histoff%len t.hist]) <= r.count || len d == 0)) {
-		newd := array[len d+len nd] of byte;
-		newd[:] = d;
-		newd[len d:] = nd;
-		d = newd;
-		ff.histoff++;
+	for(;;) {
+		if(ff.histoff == t.histend)
+			break;
+		i := (t.histfirst+ff.histoff-t.histbegin)%len t.hist;
+		if(len d != 0 && len d+len t.hist[i]-ff.histo > r.count)
+			break;
+		n := min(len t.hist[i]-ff.histo, r.count-len d);
+		nd := array[len d+n] of byte;
+		nd[:] = d;
+		nd[len d:] = t.hist[i][ff.histo:ff.histo+n];
+		d = nd;
+		ff.histo += n;
+		if(ff.histo == len t.hist[i]) {
+			ff.histo = 0;
+			ff.histoff++;
+		}
 	}
 	return ref Rmsg.Read(r.tag, d);
 }
@@ -1405,7 +1439,7 @@ Target.new(name: string): ref Target
 		lastid++, name, lname, ischannel(lname), logfd,
 		array[0] of ref Fidfile, array[0] of ref Fidfile,
 		array[0] of array of byte, 0,
-		0, 0,
+		0, 0, 0,
 		array[0] of string, array[0] of string,
 		0, 0, 0, nil, daytime->now());
 }
@@ -1414,14 +1448,16 @@ Target.putdata(t: self ref Target, s: string)
 {
 	d := array of byte s;
 	t.mtime = daytime->now();
-	while(t.histlen+len d > Histmax && t.begin < t.end) {
-		t.histlen -= len t.hist[t.begin%len t.hist];
-		t.begin++;
+	while(t.histlength+len d > Histmax && t.histbegin < t.histend) {
+		t.histlength -= len t.hist[t.histfirst];
+		t.histbegin++;
+		t.histfirst = (t.histfirst+1)%len t.hist;
 	}
-	if(t.end-t.begin >= len t.hist)
+	t.histend++;
+	if(t.histend-t.histbegin > len t.hist)
 		t.hist = grow(t.hist, 16);
-	t.hist[(t.end++)%len t.hist] = d;
-	t.histlen += len d;
+	t.hist[(t.histfirst+(t.histend-1-t.histbegin))%len t.hist] = d;
+	t.histlength += len d;
 }
 
 Target.write(t: self ref Target, s: string)
@@ -1629,6 +1665,13 @@ stripnewline(l: string): string
 	if(len l >= 1 && l[len l-1:] == "\n")
 		l = l[:len l-1];
 	return l;
+}
+
+min(a, b: int): int
+{
+	if(a < b)
+		return a;
+	return b;
 }
 
 pid(): int

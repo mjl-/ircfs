@@ -35,7 +35,7 @@ see the manual pages for details, ircfs(4) and wm-irc(1).
 # licence & author
 
 this code is in the public domain.  the code is written by mechiel
-lukkien, reachable at mechiel@xs4all.nl or mechiel@ueber.net.
+lukkien, reachable at mechiel@ueber.net.
 
 
 # example
@@ -79,10 +79,8 @@ the mount and styxlisten calls earlier by "-k $home/keyring/ircfs".
 
 # todo
 
-- ircfs: sometimes old lines are reinserted in the data file.  probably something wrong with accounting of the lines for the data file.
 - both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
 - wm/irc: make adding a window faster (tk-wise probably), so startup with many windows becomes faster.
-- wm/irc: a ridiculous amount of cpu is used when moving the mouse over the irc window.
 
 - ircfs: when people come online (in channel) and have a window, put a meta-message in the window?  idea from sqweek
 - read irc rfc's, try on many networks/channels
