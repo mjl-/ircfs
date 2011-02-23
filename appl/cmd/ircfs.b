@@ -43,9 +43,7 @@ include "styxservers.m";
 	styxservers: Styxservers;
 	Styxserver, Fid, Navigator, Navop: import styxservers;
 include "daytime.m";
-	daytime: Daytime;
-include "lists.m";
-	lists: Lists;
+	dt: Daytime;
 include "irc.m";
 	irc: Irc;
 	lowercase, ischannel, Irccon, Timsg, Rimsg, From: import irc;
@@ -177,8 +175,7 @@ init(nil: ref Draw->Context, args: list of string)
 	styx->init();
 	styxservers = load Styxservers Styxservers->PATH;
 	styxservers->init(styx);
-	daytime = load Daytime Daytime->PATH;
-	lists = load Lists Lists->PATH;
+	dt = load Daytime Daytime->PATH;
 	irc = load Irc Irc->PATH;
 	irc->init();
 
@@ -205,7 +202,7 @@ init(nil: ref Draw->Context, args: list of string)
 	sys->pctl(Sys->NEWPGRP, nil);
 
 	status = gettarget(sprint("(%s)", netname));
-	starttime = daytime->now();
+	starttime = dt->now();
 
 	ircinc = chan of (ref Rimsg, string, string);
 	ircoutc = chan[16] of array of byte;
@@ -228,20 +225,20 @@ init(nil: ref Draw->Context, args: list of string)
 	spawn main(msgc);
 }
 
+weekdays := array[] of {"sun", "mon", "tues", "wednes", "thurs", "fri", "satur"};
 main(msgc: chan of ref Tmsg)
 {
 Done:
 	for(;;) alt {
 	<-dayc =>
-		tm := daytime->local(daytime->now());
-		wdays := array[] of {"sun", "mon", "tues", "wednes", "thurs", "fri", "satur"};
-		daystr := sprint("! day changed, %d-%02d-%02d, %sday\n", tm.year+1900, tm.mon+1, tm.mday, wdays[tm.wday]);
+		tm := dt->local(dt->now());
+		daystr := sprint("! day changed, %d-%02d-%02d, %sday\n", tm.year+1900, tm.mon+1, tm.mday, weekdays[tm.wday]);
 		for(i := 0; i < len targets; i++)
 			if(!targets[i].eof)
 				targets[i].write(daystr);
 
 	<-pingwatchc =>
-		writefile(pongfile, sprint("nopong %d\n", daytime->now()-pingtime));
+		writefile(pongfile, sprint("nopong %d\n", dt->now()-pingtime));
 
 	<-nextpingc =>
 		ping();
@@ -295,11 +292,11 @@ Done:
 dayticker()
 {
 	for(;;) {
-		tm := daytime->local(daytime->now());
+		tm := dt->local(dt->now());
 		secs := 24*3600-3*60 - (tm.hour*3600+tm.min*60+tm.sec);
 		if(secs > 0)
 			sys->sleep(1000*secs);
-		tm = daytime->local(daytime->now());
+		tm = dt->local(dt->now());
 		secs = 24*3600 - (tm.hour*3600+tm.min*60+tm.sec);
 		sys->sleep(secs*1000+200);
 		dayc <-= 1;
@@ -330,7 +327,7 @@ ping()
 		warn("writing ping request: "+err);
 	spawn pingwatch(pidc := chan of int);
 	pingwatchpid = <-pidc;
-	pingtime = daytime->now();
+	pingtime = dt->now();
 }
 
 doirc(mm: ref Rimsg)
@@ -344,7 +341,7 @@ doirc(mm: ref Rimsg)
 	Pong =>
 		kill(pingwatchpid);
 		pingwatchpid = -1;
-		writefile(pongfile, sprint("pong %d\n", daytime->now()-pingtime));
+		writefile(pongfile, sprint("pong %d\n", dt->now()-pingtime));
 		spawn nextping(pidc := chan of int);
 		nextpingpid = <-pidc;
 
@@ -547,7 +544,7 @@ doirc(mm: ref Rimsg)
 				t := findtargetname(m.where);
 				if(t == nil || t.eof)
 					t = status;
-				now := daytime->now();
+				now := dt->now();
 				if(t.mtime+10*60 >= now && msg == t.prevaway)
 					silent = 1;
 				t.mtime = now;
@@ -1259,7 +1256,7 @@ ircwriter(pidc: chan of int, fd: ref Sys->FD)
 
 stamp(): string
 {
-	tm := daytime->local(daytime->now());
+	tm := dt->local(dt->now());
 	if(tflag)
 		return sprint("%4d-%02d-%02d %02d:%02d:%02d", 1900+tm.year, 1+tm.mon, tm.mday, tm.hour, tm.min, tm.sec);
 	return sprint("%02d:%02d", tm.hour, tm.min);
@@ -1441,13 +1438,13 @@ Target.new(name: string): ref Target
 		array[0] of array of byte, 0,
 		0, 0, 0,
 		array[0] of string, array[0] of string,
-		0, 0, 0, nil, daytime->now());
+		0, 0, 0, nil, dt->now());
 }
 
 Target.putdata(t: self ref Target, s: string)
 {
 	d := array of byte s;
-	t.mtime = daytime->now();
+	t.mtime = dt->now();
 	while(t.histlength+len d > Histmax && t.histbegin < t.histend) {
 		t.histlength -= len t.hist[t.histfirst];
 		t.histbegin++;
@@ -1601,7 +1598,7 @@ tokens(s, splitstr: string, n: int): (list of string, string)
 	}
 	if(n > 0)
 		return (nil, s);
-	return (lists->reverse(toks), rem);
+	return (rev(toks), rem);
 }
 
 grow[T](d: array of T, n: int): array of T
@@ -1665,6 +1662,14 @@ stripnewline(l: string): string
 	if(len l >= 1 && l[len l-1:] == "\n")
 		l = l[:len l-1];
 	return l;
+}
+
+rev[T](l: list of T): list of T
+{
+	r: list of T;
+	for(; l != nil; l = tl l)
+		r = hd l::r;
+	return r;
 }
 
 min(a, b: int): int
