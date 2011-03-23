@@ -34,6 +34,8 @@ include "arg.m";
 include "bufio.m";
 	bufio: Bufio;
 	Iobuf: import bufio;
+include "dial.m";
+	dial: Dial;
 include "string.m";
 	str: String;
 include "styx.m";
@@ -170,6 +172,7 @@ init(nil: ref Draw->Context, args: list of string)
 	sys = load Sys Sys->PATH;
 	arg := load Arg Arg->PATH;
 	bufio = load Bufio Bufio->PATH;
+	dial = load Dial Dial->PATH;
 	str = load String String->PATH;
 	styx = load Styx Styx->PATH;
 	styx->init();
@@ -1195,15 +1198,16 @@ ircreader(addr, fromhost, newnick, newpass: string)
 {
 	dfd, cfd: ref Sys->FD;
 
+	addr = dial->netmkaddr(addr, "net", "6667");
 	if(fromhost == nil) {
 		say("dialing");
-		(ok, conn) := sys->dial(addr, nil);
-		if(ok < 0) {
+		c := dial->dial(addr, nil);
+		if(c == nil) {
 			dialerrc <-= sprint("dial %s: %r", addr);
 			return;
 		}
-		dfd = conn.dfd;
-		cfd = conn.cfd;
+		dfd = c.dfd;
+		cfd = c.cfd;
 	} else {
 		say("dialing with bind and connect");
 		(fds, err) := dialfancy(addr, fromhost);

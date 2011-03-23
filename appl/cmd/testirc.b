@@ -6,6 +6,8 @@ include "sys.m";
 include "draw.m";
 include "arg.m";
 include "bufio.m";
+include "dial.m";
+	dial: Dial;
 include "irc.m";
 	irc: Irc;
 	Irccon, Timsg, Rimsg, From: import irc;
@@ -21,6 +23,7 @@ init(nil: ref Draw->Context, args: list of string)
 {
 	sys = load Sys Sys->PATH;
 	arg := load Arg Arg->PATH;
+	dial = load Dial Dial->PATH;
 	irc = load Irc Irc->PATH;
 	irc->init();
 
@@ -37,12 +40,13 @@ init(nil: ref Draw->Context, args: list of string)
 		arg->usage();
 
 	say("dialing");
-	(ok, conn) := sys->dial(addr, nil);
-	if(ok < 0)
+	addr = dial->netmkaddr(addr, "net", "6667");
+	cc := dial->dial(addr, nil);
+	if(cc == nil)
 		fail(sprint("dial %s: %r", addr));
 	say("connected");
 
-	(ic, err) := Irccon.new(conn.dfd, addr, "itestirc", "itestirc", nil);
+	(ic, err) := Irccon.new(cc.dfd, addr, "itestirc", "itestirc", nil);
 	if(err != nil)
 		fail(err);
 	say("new ircc");

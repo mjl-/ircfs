@@ -3,11 +3,13 @@
 has been in use for quite some time.
 
 
-# summary
+# intro
 
-this package contains an irc file system (ircfs), an irc library
-and a tk front-end for the filesystem (wm/irc).  all written in
-limbo for use under inferno.
+ircfs is an irc client with a 9p2000 file system interface, an irc
+library and a tk front-end for the filesystem (wm/irc).  all written
+in limbo for use under inferno.
+
+see the manual pages for details, ircfs(4) and wm-irc(1).
 
 
 # download
@@ -19,18 +21,13 @@ the latest version can be found at:
 
 # install
 
-modify "mkconfig" if you do not have $ROOT set.  now type
-"mk install" to compile and install.  NOTE: just "mk" does not work,
-since the module files (*.m) will be missing and compilation of
-source files (*.b) will fail.
+modify "mkconfig" if you do not have $ROOT set.  run "mk install"
+to compile and install.  NOTE: just "mk" does not work, since the
+module files (*.m) will be missing and compilation of source files
+(*.b) will fail.
 
 when building from within inferno, insert SYSHOST=Inferno and ROOT=
 in the mk invocations to override the values in the mkconfig.
-
-
-# documentation
-
-see the manual pages for details, ircfs(4) and wm-irc(1).
 
 
 # licence & author
