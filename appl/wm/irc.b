@@ -11,9 +11,7 @@ include "bufio.m";
 	bufio: Bufio;
 	Iobuf: import bufio;
 include "daytime.m";
-	daytime: Daytime;
-include "lists.m";
-	lists: Lists;
+	dt: Daytime;
 include "regex.m";
 	regex: Regex;
 	Re: import Regex;
@@ -114,7 +112,6 @@ sflag: int;
 readhistsize := big -1;
 t: ref Tk->Toplevel;
 wmctl: chan of string;
-lineheight := 0;
 width := 800;
 height := 600;
 res: list of Re;
@@ -184,13 +181,14 @@ tkcmds := array[] of {
 maketext(tkid: string)
 {
 	id := tkid;
+	tkcmd(sprint("frame .m.%s", id));
+	tkcmd(sprint("text .%s -wrap word -yscrollcommand {.%s-scroll set}", id, id));
+	tkfont := tkcmd(sprint(".%s cget -font", id));
 	cmds := array[] of {
-		sprint("frame .m.%s", id),
-		sprint("text .%s -wrap word -yscrollcommand {.%s-scroll set}", id, id),
 		# without the font-part, the lmargin seems to be ignored...
-		sprint(".%s tag configure meta -fg blue -lmargin2 6w", id),
+		sprint(".%s tag configure meta -fg blue -font %s -lmargin2 6w", id, tkfont),
 		sprint(".%s tag configure warning -fg red", id),
-		sprint(".%s tag configure data -fg black -lmargin2 16w", id),
+		sprint(".%s tag configure data -fg black -font %s -lmargin2 16w", id, tkfont),
 		sprint(".%s tag configure hl -bg yellow", id),
 		sprint(".%s tag configure search -bg orange", id),
 		sprint(".%s tag configure status -fg green", id),
@@ -218,8 +216,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 	str = load String String->PATH;
 	bufio = load Bufio Bufio->PATH;
 	arg := load Arg Arg->PATH;
-	daytime = load Daytime Daytime->PATH;
-	lists = load Lists Lists->PATH;
+	dt = load Daytime Daytime->PATH;
 	regex = load Regex Regex->PATH;
 	plumbmsg = load Plumbmsg Plumbmsg->PATH;
 	tk = load Tk Tk->PATH;
@@ -230,26 +227,31 @@ init(ctxt: ref Draw->Context, args: list of string)
 	if(ctxt == nil)
 		fail("no window context");
 
+	sys->pctl(Sys->NEWPGRP, nil);
+
 	arg->init(args);
 	arg->setusage(arg->progname()+" [-ds] [-g width height] [-h histsize] [-r hlregex] [path ...]");
 	while((c := arg->opt()) != 0)
 		case c {
-		'd' =>	dflag++;
-		'g' =>	width = int arg->earg();
+		'd' =>
+			dflag++;
+		'g' =>
+			width = int arg->earg();
 			height = int arg->earg();
-		'h' =>	readhistsize = big arg->earg();
+		'h' =>
+			readhistsize = big arg->earg();
 		'r' =>
 			(r, err) := regex->compile(arg->earg(), 0);
 			if(err != nil)
 				fail(err);
 			res = r::res;
-		's' =>	sflag++;
-		* =>	sys->fprint(sys->fildes(2), "bad option\n");
+		's' =>
+			sflag++;
+		* =>
 			arg->usage();
 		}
 	args = arg->argv();
 
-	sys->pctl(Sys->NEWPGRP, nil);
 	plumbed = plumbmsg->init(1, nil, 0) >= 0;
 	(t, wmctl) = tkclient->toplevel(ctxt, "", "irc", Tkclient->Appl);
 
@@ -264,12 +266,6 @@ init(ctxt: ref Draw->Context, args: list of string)
 	lastwin = curwin = statuswin;
 	fixwindows();
 	tkwinwrite(statuswin, "status window", "meta");
-
-	lineinfo := tkcmd(".status dlineinfo 1.0");
-	linetoks := sys->tokenize(lineinfo, " ").t1;
-	if(lineinfo == nil || linetoks == nil)
-		fail("could not get lineheight");
-	lineheight = int hd tl tl tl linetoks;
 
 	datac = chan of (ref Win.Irc, list of string);
 	eventc = chan of (ref Srv, list of string);
@@ -307,7 +303,7 @@ init(ctxt: ref Draw->Context, args: list of string)
 		srv.pongwatchpid = -1;
 		if(srv.dead)
 			continue;
-		tkwinwarn(srv.win0, sprint("no ircfs response for %d seconds", daytime->now()-srv.lastpong));
+		tkwinwarn(srv.win0, sprint("no ircfs response for %d seconds", dt->now()-srv.lastpong));
 		srv.win0.setstate(srv.win0.state|Delayed);
 		tkcmd("update");
 		pongwatch(srv, 5);
@@ -664,7 +660,7 @@ dopong(srv: ref Srv, tokens: list of string)
 	tokens = tl tokens;
 	
 	if(srv.noircfs) {
-		tkwinwrite(srv.win0, sprint("have ircfs response again, after %d seconds", daytime->now()-srv.lastpong), "warning");
+		tkwinwrite(srv.win0, sprint("have ircfs response again, after %d seconds", dt->now()-srv.lastpong), "warning");
 		srv.win0.setstate(srv.win0.state & ~Delayed);
 		tkcmd("update");
 		srv.noircfs = 0;
@@ -680,11 +676,11 @@ dopong(srv: ref Srv, tokens: list of string)
 			tkcmd("update");
 			srv.nopong = 0;
 		}
-		srv.lastpong = daytime->now();
+		srv.lastpong = dt->now();
 		pongwatch(srv, Pinginterval+Noponginterval+Pongslack);
 
 	"nopong" =>
-		srv.lastpong = daytime->now();
+		srv.lastpong = dt->now();
 		nsecs := 0;
 		if(len tokens == 1)
 			nsecs = int hd tokens;
@@ -766,7 +762,7 @@ uncrap(s: string): (string, list of ref (int, int))
 		# 	;
 		* =>	r[len r] = s[i];
 		}
-	return (r, lists->reverse(bolds));
+	return (r, rev(bolds));
 }
 
 command(line: string)
@@ -850,7 +846,7 @@ wincmd(line: string)
 
 	"windows" =>
 		tkstatus("open:");
-		for(wl := lists->reverse(ircwin.srv.wins); wl != nil; wl = tl wl)
+		for(wl := rev(ircwin.srv.wins); wl != nil; wl = tl wl)
 			tkstatus(sprint("\t%-15s (%d)", (hd wl).name, (hd wl).id));
 		tkstatus("not open:");
 		for(l := ircwin.srv.unopen; l != nil; l = tl l)
@@ -877,7 +873,7 @@ Srv.init(srvid: int, path: string): (ref Srv, string)
 	if(pongfd == nil)
 		return (nil, sprint("open: %r"));
 
-	srv := ref Srv(srvid, path, ctlfd, pongfd, eventb, nil, nil, 0, nil, nil, nil, 0, chan[8] of (ref Win.Irc, ref Sys->FD, string), -1, -1, daytime->now(), 0, 0, -1);
+	srv := ref Srv(srvid, path, ctlfd, pongfd, eventb, nil, nil, 0, nil, nil, nil, 0, chan[8] of (ref Win.Irc, ref Sys->FD, string), -1, -1, dt->now(), 0, 0, -1);
 	return (srv, nil);
 }
 
@@ -893,7 +889,7 @@ Srv.delunopen(srv: self ref Srv, id: int)
 	for(; srv.unopen != nil; srv.unopen = tl srv.unopen)
 		if((hd srv.unopen).t1 != id)
 			unopen = hd srv.unopen::unopen;
-	srv.unopen = lists->reverse(unopen);
+	srv.unopen = rev(unopen);
 }
 
 Srv.haveopen(srv: self ref Srv, id: int): int
@@ -1061,7 +1057,7 @@ Win.addline(w: self ref Win, l: string, tag: string)
 		w.nlines++;
 
 	tkcmd(sprint(".%s insert end '%s", w.tkid, l));
-	tkcmd(sprint(".%s tag add %s {end -1c -%dc} {end - 1c}", w.tkid, tag, len l));
+	tkcmd(sprint(".%s tag add %s {end -1c -%dc} {end -1c}", w.tkid, tag, len l));
 }
 
 Win.close(w: self ref Win)
@@ -1175,7 +1171,6 @@ l2awin(l: list of ref Win.Irc): array of ref Win
 		a[i++] = hd l;
 	return a;
 }
-
 
 fixwindows()
 {
@@ -1374,7 +1369,7 @@ del[T](e: T, l: list of T): list of T
 	for(; l != nil; l = tl l)
 		if(hd l != e)
 			r = hd l::r;
-	return lists->reverse(r);
+	return rev(r);
 }
 
 sort[T](a: array of T, ge: ref fn(a, b: T): int)
@@ -1387,21 +1382,34 @@ sort[T](a: array of T, ge: ref fn(a, b: T): int)
 	}
 }
 
+rev[T](l: list of T): list of T
+{
+	r: list of T;
+	for(; l != nil; l = tl l)
+		r = hd l::r;
+	return r;
+}
+
 pid(): int
 {
 	return sys->pctl(0, nil);
 }
 
+progctl(pid: int, s: string)
+{
+	sys->fprint(sys->open(sprint("/prog/%d/ctl", pid), sys->OWRITE), "%s", s);
+}
+
 kill(pid: int)
 {
-	if(pid >= 0 && (fd := sys->open(sprint("/prog/%d/ctl", pid), Sys->OWRITE)) != nil)
-		sys->fprint(fd, "kill");
+	if(pid >= 0)
+		progctl(pid, "kill");
 }
 
 killgrp(pid: int)
 {
-	if((fd := sys->open(sprint("/prog/%d/ctl", pid), Sys->OWRITE)) != nil)
-		sys->fprint(fd, "killgrp");
+	if(pid >= 0)
+		progctl(pid, "killgrp");
 }
 
 say(s: string)
