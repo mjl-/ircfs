@@ -99,8 +99,7 @@ Win: adt {
 	setstate:	fn(w: self ref Win, state: int);
 	status:		fn(w: self ref Win): string;
 	scroll:		fn(w: self ref Win);
-	scrolltext:	fn(w: self ref Win, seetop, seebottom: int);
-	visibletext:	fn(w: self ref Win): (int, int);
+	scrolled:	fn(w: self ref Win): int;
 	plumbsend:	fn(w: self ref Win, text, key, val: string);
 };
 
@@ -137,7 +136,7 @@ tkcmds := array[] of {
 	"frame .side",
 
 	"button .plumb -text plumb -command {send cmd plumb; focus .l}",
-	"button .mark -text mark -command {send cmd mark; focus .l}",
+	"button .mark -text {clear status} -command {send cmd mark; focus .l}",
 	"entry .find",
 	"bind .find <Key-\n> {send cmd find}",
 	"bind .find <Control-n> {send cmd findnext}",
@@ -552,8 +551,7 @@ dodata(win: ref Win.Irc, lines: list of string)
 		return;
 	}
 
-	(seetop, seebottom) := win.visibletext();
-
+	scroll := win.scrolled();
 	nlines := len lines;
 	for(; lines != nil; lines = tl lines) {
 		m := hd lines;
@@ -598,7 +596,8 @@ dodata(win: ref Win.Irc, lines: list of string)
 			win.setstate(win.state|state);
 		}
 	}
-	win.scrolltext(seetop, seebottom);
+	if(scroll)
+		win.scroll();
 	tkcmd("update");
 }
 
@@ -1110,35 +1109,12 @@ drawstate(w: ref Win)
 
 Win.scroll(w: self ref Win)
 {
-	(seetop, seebottom) := w.visibletext();
-	w.scrolltext(seetop, seebottom);
+	tkcmd(sprint(".%s scan mark 0 0; .%s scan dragto -10000 -10000", w.tkid, w.tkid));
 }
 
-Win.visibletext(w: self ref Win): (int, int)
+Win.scrolled(w: self ref Win): int
 {
-	if(lineheight == 0)
-		return (0, 0);
-
-	where := tkcmd(sprint("see -where .%s", w.tkid));
-	textlines := int hd tl tl tl sys->tokenize(where, " ").t1/lineheight;
-
-	seetop := tkcmd(sprint(".%s dlineinfo {end -%d lines}", w.tkid, textlines)) != nil;
-	seebottom := tkcmd(sprint(".%s dlineinfo {end -2 lines}", w.tkid)) != nil;
-	return (seetop, seebottom);
-}
-
-Win.scrolltext(w: self ref Win, seetop, seebottom: int)
-{
-	if(lineheight == 0)
-		return;
-
-	where := tkcmd(sprint("see -where .%s", w.tkid));
-	textlines := int hd tl tl tl sys->tokenize(where, " ").t1/lineheight;
-
-	if(seebottom && !seetop)
-		tkcmd(sprint(".%s yview {end -%d lines}", w.tkid, textlines));
-	if(seebottom)
-		tkcmd(sprint(".%s see {end -1c lineend}", w.tkid));
+	return tkcmd(sprint(".%s dlineinfo {end -1c linestart}", w.tkid)) != nil;
 }
 
 Win.plumbsend(w: self ref Win, text, key, val: string)
@@ -1159,10 +1135,10 @@ showwindow(w: ref Win)
 {
 	tkcmd(sprint("pack forget .m.%s", curwin.tkid));
 
-	tkcmd(sprint("bind .l <Control-\\-> {.%s yview scroll -0.75 page}", w.tkid));
-	tkcmd(sprint("bind .l <Control-=> {.%s yview scroll 0.75 page}", w.tkid));
 	tkcmd(sprint("bind .l <Key-%c> {.%s yview scroll -0.75 page}", Keyboard->Pgup, w.tkid));
 	tkcmd(sprint("bind .l <Key-%c> {.%s yview scroll 0.75 page}", Keyboard->Pgdown, w.tkid));
+	tkcmd(sprint("bind .l <Key-%c> {.%s see 1.0}", Keyboard->Home, w.tkid));
+	tkcmd(sprint("bind .l <Key-%c> {.%s scan mark 0 0; .%s scan dragto -10000 -10000}", Keyboard->End, w.tkid, w.tkid));
 	tkcmd(sprint("pack .m.%s -in .m.text -fill both -expand 1", w.tkid));
 	w.scroll();
 

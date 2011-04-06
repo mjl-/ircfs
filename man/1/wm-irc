@@ -20,34 +20,56 @@ irc \- graphical interface to the irc file system
 .B Wm/irc
 is a Tk interface to irc file systems,
 .IR ircfs (4).
-The larger part of the window shows the communication of a channel or a user query.  Such a channel or user query is called an
+The larger part of the window shows the communication of a channel or a user query.
+Such a channel or user query is called an
 .I "irc directory"
 in ircfs, and corresponds to a
 .I window
 in wm/irc.
 Below this main area, an input entry allows new text and commands to be sent.
 Atop the main window are a button to plumb the current text selection,
-a button to mark all windows as seen (clearing their activity status),
-and a search input entry and buttons for searching the previous and next match.
-Left of these elements is a listing with names of opened irc directories.  Selecting one displays it on the main area.
+a button to clear activity status for all windows,
+and a search input entry with buttons for searching the previous and next match.
+Left of these elements is a list with names of opened irc directories.
+Selecting one displays it on the main area.
 Text in the input entries and in the main text windows can be cut & pasted with mouse chording.
 
 .PP
 At startup, the
 .I paths
-given on the command-line are opened.  Each path should adhere to the file system layout served by ircfs.
+given on the command-line are opened.
+Each path should adhere to the file system layout served by ircfs.
 All irc directories are opened as windows.
 
 .PP
 .B Wm/irc
-strips specials characters that cause colours and underlines to be displayed in other irc clients from the input.  Only bold instructions are used, drawn underlined.
-Occurrences of our nick are highlighted in yellow.
-Activity on windows is shown by a single character left to the name of the window, in the list on the left.  The status is cleared (the character set to a space) when a window is shown.  Highlights and text in user queries have the highest priority and are displayed as an ``='';  text in channels is displayed as a ``+'';  meta information (such as joins and topic changes) is displayed as ``-''.  The server status window can be marked with ``~'' to indicate delays in the connection between wm/irc and ircfs, and/or between ircfs and the irc server.
+strips specials characters that cause colours and underlines to be displayed in other irc clients from the input.
+Only bold instructions are used, but drawn underlined.
+Instances of
+.I ircfs'
+nick are highlighted in yellow.
+Activity in a window is indicated in the list on the left, by a status character in front of the window name.
+The status is kept clear while a window is visible.
+The following status characters can appear, in decreasing priority:
+.TP
+.B =
+Highlights and text in user queries.
+.TP
+.B +
+Text in channels.
+.TP
+.B -
+Meta information such as joins and topic changes.
+.TP
+.B ~
+Only for server status windows.
+Indicates a delay in the connection between wm/irc and ircfs, and/or between ircfs and its irc server.
 
 .SS Options
 .TP
 .B -s
-Do not automatically add windows for all irc directories ircfs knows.  By default, each directory is opened.
+Do not automatically add windows for all irc directories ircfs knows.
+By default, each directory is opened.
 .TP
 .BI -g " width height"
 Set the window size to
@@ -56,33 +78,40 @@ Set the window size to
 .BI -h " histsize"
 Do not read more than
 .I histsize
-bytes of backlog from ircfs when opening a new window.  Useful on slow connections.
+bytes of backlog from ircfs when opening a new window.
+Useful on slow connections.
 .TP
 .BI -r " hlregex"
 Highlight text matches
 .I hlregex
-too.  Can be specified multiple times.  The own nick is always hightlighted.
+too.
+Can be specified multiple times.
+The own nick is always hightlighted.
 .TP
 .B -d
 Enable debugging output.
 
 .SS Commands
 Commands can be entered in the input entry at the bottom of the screen.
-All lines starting with a slash are treated as commands.
+Lines starting with a slash are treated as commands.
 Lines starting with two slashes are treated as text with one slash removed.
-Wm/irc handles the command "win" itself, all other commands are passed on the
+Wm/irc handles the command
+.I /win
+itself, all other commands are passed on the
 .I ctl
 file of the corresponding irc directory.
 See
 .IR ircfs (4)
 for commands understood by ircfs.
 
-The parameters to "win" are itself considered as a command:
+The parameters to
+.I /win
+are itself considered as a command:
 .TP
 .BR exit " or " quit
 Exit
 .BR wm/irc .
-Note that it does not issue a quit command to ircfs.
+It does not issue a quit command to ircfs.
 .TP
 .BI add " path"
 Start serving the ircfs from mount point
@@ -99,10 +128,13 @@ Open the irc directory
 .I id
 of the ircfs of the current window, e.g.
 .IR /mnt/irc/ircnet/id/ .
+.TP
 .B close
 Closes the current
 .IR window .
-Note that it does not issue a part command to ircfs.
+Note that it does not issue a
+.L part
+command to ircfs.
 Use ircfs's
 .I remove
 command to part the irc directory and afterwards close the window.
@@ -125,52 +157,59 @@ is not present, the user is marked as present again.
 Several shortcuts are available.
 Unless noted otherwise, they only work with the cursor in the input entry at the bottom.
 .TP
-.BR "control p" " and " "control n"
-Show the previous or next window, the window above/below the one currently selected.  Wraps to the bottom or top.
+.BR ^p " and " ^n
+Show the previous or next window, the window above/below the one currently selected.
+Wraps to the bottom or top.
 .TP
-.BR "control z" " and " "control x"
-Show the previous active window.  Like
-.I control-p
+.BR ^z " and " ^x
+Show the previous active window.
+Like
+.I ^p
 and
-.I control-n
+.I ^n
 but selects the window with the highest status (highlight, text, meta).
 .TP
-.B "control k"
+.B ^k
 Switch to the previously selected window again.
 Useful for switching between a newly activated window and the current one.
 .TP
-.B "control f"
+.B ^f
 Switch focus to the
 .I find
 input entry.
 .TP
-.BR "control p" " and " "control n"
-Find previous or next match.  Works only with focus on the
+.BR ^p " and " ^n
+Find previous or next match.
+Works only with focus on the
 .I find
-input entry.  Typing a newline starts a new search or clears a current one.  Searching starts at the bottom of the window.
+input entry.
+Typing a newline starts a new search or clears a current one.
+Searching starts at the bottom of the window.
 .TP
-.B "control t"
+.B ^t
 Switch focus to the
 .I text
 input entry.
 Works with focus on the list on the left, in the find entry and main window.
 .TP
-.BR "page up" " and " "page down" " or " "control -" " and " "control ="
-Scroll up/down in the main text window.
+.BR "Page up" " and " "Page down"
+Scroll up/down in the text window.
+.TP
+.BR Home " and " End
+Scroll to start/end of the text window.
 .TP
 .B "tab"
-Auto-complete the current word as a user name in a channel.
+Complete the current word as a user name in a channel.
 
 .SH EXAMPLE
 To start and mount a new ircfs and use it from wm/irc:
 .EX
-	mkdir /mnt/irc
-	mkdir /mnt/irc/freenode
+	mkdir -p /mnt/irc/freenode
 	mount {ircfs freenode} /mnt/irc/freenode
 	wm/irc /mnt/irc/freenode
 
 	# now type this in the input entry at the bottom to connect as "inferno":
-	/connect net!irc.freenode.net!6667 inferno
+	/connect irc.freenode.net inferno
 
 	# and to join a channel #inferno
 	/join #inferno
@@ -178,8 +217,9 @@ To start and mount a new ircfs and use it from wm/irc:
 .SH SOURCE
 .B /appl/wm/irc.b
 .SH SEE ALSO
-.IR ircfs (4).
+.IR ircfs (4)
 .SH BUGS
 Plumbing requires button.
-.br
-Ircfs has no way of letting wm/irc know which data has been read before, e.g. by a recent invocation of wm/irc.  At startup, wm/irc is likely to generate status changes (e.g. highlights) for events that have already been seen by the user.
+.PP
+Ircfs has no way of letting wm/irc know which data has been read before, e.g. by a recent invocation of wm/irc.
+At startup, wm/irc is likely to generate status changes (e.g. highlights) for events that have already been seen by the user.
