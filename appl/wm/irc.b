@@ -290,13 +290,17 @@ init(ctxt: ref Draw->Context, args: list of string)
 		tk->pointer(t, *s);
 
 	s := <-t.ctxt.ctl or
-	s = <-t.wreq =>
+	s = <-t.wreq or
+	s = <-wmctl =>
+		scrolled := array[len windows] of {* => 0};
+		if(str->prefix("!", s))
+			for(i = 0; i < len windows; i++)
+				scrolled[i] = windows[i].scrolled();
 		tkclient->wmctl(t, s);
-
-	menu := <-wmctl =>
-		if(menu == "exit")
-			quit();
-		tkclient->wmctl(t, menu);
+		for(i = 0; i < len scrolled; i++)
+			if(scrolled[i])
+				windows[i].scroll();
+		tkcmd("update");
 
 	srv := <-pongwatchc =>
 		say("pongwatch timeout");
@@ -357,12 +361,6 @@ init(ctxt: ref Draw->Context, args: list of string)
 	(w, err) := <-writererrc =>
 		tkwinwarn(w, "writing: "+err);
 	}
-}
-
-quit()
-{
-	killgrp(pid());
-	exit;
 }
 
 srvopen(srvid: int, s: string)
@@ -791,7 +789,8 @@ wincmd(line: string)
 
 	"exit" or
 	"quit" =>
-		quit();
+		killgrp(pid());
+		exit;
 
 	"clear" =>
 		tkcmd(sprint(".%s delete 1.0 end; update", curwin.tkid));

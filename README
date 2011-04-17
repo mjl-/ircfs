@@ -77,7 +77,7 @@ the mount and styxlisten calls earlier by "-k $home/keyring/ircfs".
 
 # todo
 
-- both: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.
+- ircfs & wm/irc: make ircfs keep track of unread data.  when a client opens a file and reads the history, ircfs will send a "new data" meta-message when it switches from already-read to not-yet-read data.  ircfs should also indicate which data it wrote, so wm/irc's can mark the window as clean.
 - wm/irc: make adding a window faster (tk-wise probably), so startup with many windows becomes faster.
 
 - ircfs: when people come online (in channel) and have a window, put a meta-message in the window?  idea from sqweek
